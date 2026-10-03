@@ -1,0 +1,9 @@
+* text=auto
+
+# The wrapper script runs on Linux in CI, so it must keep LF endings
+gradlew text eol=lf
+*.bat text eol=crlf
+
+*.jar binary
+*.jks binary
+*.png binary

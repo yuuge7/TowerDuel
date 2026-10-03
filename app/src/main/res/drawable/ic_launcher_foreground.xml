@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Shield outline -->
+    <path
+        android:fillColor="#3DDC97"
+        android:pathData="M54,20 L78,30 L78,58 C78,76 66,86 54,92 C42,86 30,76 30,58 L30,30 Z" />
+
+    <!-- Shield inner -->
+    <path
+        android:fillColor="#1B2430"
+        android:pathData="M54,28 L71,35 L71,58 C71,71 63,79 54,84 C45,79 37,71 37,58 L37,35 Z" />
+
+    <!-- Tower body -->
+    <path
+        android:fillColor="#F2C744"
+        android:pathData="M46,72 L46,50 L50,50 L50,45 L58,45 L58,50 L62,50 L62,72 Z" />
+
+    <!-- Tower crenellations -->
+    <path
+        android:fillColor="#F2C744"
+        android:pathData="M44,50 L44,44 L48,44 L48,50 M52,44 L56,44 L56,50 L52,50 Z M60,44 L64,44 L64,50 L60,50 Z" />
+</vector>

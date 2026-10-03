@@ -1,0 +1,37 @@
+# Gradle
+.gradle/
+build/
+
+# Machine-specific config (SDK path)
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.kotlin/
+
+# Android build output
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Release signing: never commit the keystore or its passwords
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Markdown: only READMEs are tracked
+*.md
+!README.md
+
+# Claude Code
+.claude/
