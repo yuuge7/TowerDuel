@@ -72,7 +72,7 @@ fun ResultsScreen(
     }
     val you = eng.playerField
     val rival = eng.aiField
-    val profile = viewModel.profile
+    val record = viewModel.profile.stats
 
     BackHandler { onMainMenu() }
 
@@ -118,8 +118,8 @@ fun ResultsScreen(
             Spacer(Modifier.height(12.dp))
             Text(
                 when {
-                    outcome == MatchOutcome.PLAYER_WIN && profile.streak > 1 -> "${profile.streak} wins in a row! Best streak: ${profile.bestStreak}"
-                    else -> "Record: ${profile.wins} won, ${profile.losses} lost"
+                    outcome == MatchOutcome.PLAYER_WIN && record.streak > 1 -> "${record.streak} wins in a row! Best streak: ${record.bestStreak}"
+                    else -> "Record: ${record.wins} won, ${record.losses} lost"
                 },
                 color = if (outcome == MatchOutcome.PLAYER_WIN) Sun else Lilac,
                 style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center

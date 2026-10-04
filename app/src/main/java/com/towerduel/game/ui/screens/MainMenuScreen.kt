@@ -40,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,7 +50,6 @@ import com.towerduel.game.data.GameData
 import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.ui.DemoMatch
 import com.towerduel.game.ui.GameViewModel
-import com.towerduel.game.ui.ProfileStore
 import com.towerduel.game.ui.components.ChunkyButton
 import com.towerduel.game.ui.components.ChunkyTextButton
 import com.towerduel.game.ui.components.GameIcon
@@ -73,14 +74,55 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 
+private enum class MenuTab(val label: String) { BATTLE("BATTLE"), STATS("STATS") }
+
 @Composable
 fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
-    var selected by rememberSaveable { mutableStateOf(viewModel.selectedDifficulty) }
+    var tab by rememberSaveable { mutableStateOf(MenuTab.BATTLE) }
     // A first-time player gets the rules before anything else.
     var showHelp by rememberSaveable { mutableStateOf(viewModel.profile.isNewPlayer) }
 
+    BackHandler(enabled = tab != MenuTab.BATTLE && !showHelp) { tab = MenuTab.BATTLE }
+
+    Box(modifier = Modifier.fillMaxSize().background(ScreenBackground)) {
+        Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 16.dp)) {
+            when (tab) {
+                MenuTab.BATTLE -> BattleTab(viewModel, onStart, onHelp = { showHelp = true }, Modifier.weight(1f))
+                MenuTab.STATS -> StatsTab(viewModel.profile.stats, onPlay = { tab = MenuTab.BATTLE }, Modifier.weight(1f))
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (entry in MenuTab.entries) {
+                    ChunkyTextButton(
+                        entry.label,
+                        onClick = { tab = entry },
+                        modifier = Modifier.weight(1f).height(50.dp).semantics { selected = entry == tab },
+                        color = if (entry == tab) Sun else PanelLight,
+                        fontSize = 17.sp
+                    )
+                }
+            }
+        }
+
+        if (showHelp) {
+            HowToPlay(onClose = {
+                showHelp = false
+                viewModel.profile.markNotNew()
+            })
+        }
+    }
+}
+
+@Composable
+private fun BattleTab(viewModel: GameViewModel, onStart: (Difficulty) -> Unit, onHelp: () -> Unit, modifier: Modifier) {
+    var selected by rememberSaveable { mutableStateOf(viewModel.selectedDifficulty) }
+
     // Runs the menu's demo match, and prepares the next one in the background before the
-    // current one ends, so the lane never goes blank and the menu never stutters.
+    // current one ends, so the lane never goes blank and the menu never stutters. It lives in
+    // this tab, so the match stands still while the player is looking at their stats.
     LaunchedEffect(Unit) {
         while (true) {
             val match = viewModel.demo
@@ -95,35 +137,34 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(ScreenBackground)) {
-        Column(
-            modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(Modifier.weight(0.7f))
-            Logo()
-            Spacer(Modifier.height(14.dp))
+    // The lane is the one part that can give: on a short screen it shrinks, and whatever
+    // height is left over on a tall one is shared out between the three groups.
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceEvenly
+    ) {
+        Logo()
 
-            // The match behind the glass is real: two AIs playing the same game the player is about to.
-            Box {
-                val demo = viewModel.demo
-                if (demo != null) {
-                    LaneView(demo.engine, demo.engine.playerField, PlayerColor, demo::observeFrame, Modifier.fillMaxWidth())
+        // The match behind the glass is real: two AIs playing the same game the player is about to.
+        Box(modifier = Modifier.weight(1f, fill = false).padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+            val demo = viewModel.demo
+            if (demo != null) {
+                Box {
+                    LaneView(demo.engine, demo.engine.playerField, PlayerColor, demo::observeFrame)
                     Tag("LIVE · AI VS AI", Modifier.align(Alignment.TopStart).padding(7.dp))
-                } else {
-                    // Holds the lane's place for the moment it takes to prepare the first match.
-                    val shape = RoundedCornerShape(14.dp)
-                    Box(
-                        Modifier.fillMaxWidth().aspectRatio(LaneSpace.WIDTH / LaneSpace.HEIGHT)
-                            .clip(shape).background(NightDeep).border(2.5.dp, Ink, shape)
-                    )
                 }
+            } else {
+                // Holds the lane's place for the moment it takes to prepare the first match.
+                val shape = RoundedCornerShape(14.dp)
+                Box(
+                    Modifier.aspectRatio(LaneSpace.WIDTH / LaneSpace.HEIGHT)
+                        .clip(shape).background(NightDeep).border(2.5.dp, Ink, shape)
+                )
             }
+        }
 
-            Spacer(Modifier.height(12.dp))
-            Record(viewModel.profile)
-            Spacer(Modifier.weight(1f))
-
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (difficulty in Difficulty.entries) {
                     ChunkyTextButton(
@@ -138,7 +179,7 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
             Spacer(Modifier.height(6.dp))
             Text(selected.blurb, color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             ChunkyTextButton(
                 "PLAY", onClick = { onStart(selected) },
                 modifier = Modifier.fillMaxWidth().height(76.dp), color = Leaf, fontSize = 38.sp
@@ -146,7 +187,7 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
             Spacer(Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ChunkyTextButton(
-                    "HOW TO PLAY", onClick = { showHelp = true },
+                    "HOW TO PLAY", onClick = onHelp,
                     modifier = Modifier.weight(1f).height(50.dp), color = PanelLight, fontSize = 16.sp
                 )
                 ChunkyButton(
@@ -160,14 +201,6 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
                     )
                 }
             }
-            Spacer(Modifier.height(14.dp))
-        }
-
-        if (showHelp) {
-            HowToPlay(onClose = {
-                showHelp = false
-                viewModel.profile.markNotNew()
-            })
         }
     }
 }
@@ -196,28 +229,6 @@ private fun Tag(text: String, modifier: Modifier = Modifier) {
         modifier = modifier.clip(shape).background(Tomato).border(2.dp, Ink, shape).padding(horizontal = 9.dp, vertical = 3.dp)
     ) {
         OutlinedText(text, fontSize = 12.sp, modifier = Modifier.offset(y = 1.dp))
-    }
-}
-
-@Composable
-private fun Record(profile: ProfileStore) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        RecordStat("WINS", profile.wins, Modifier.weight(1f))
-        RecordStat("LOSSES", profile.losses, Modifier.weight(1f))
-        RecordStat("STREAK", profile.streak, Modifier.weight(1f))
-        RecordStat("BEST", profile.bestStreak, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun RecordStat(label: String, value: Int, modifier: Modifier) {
-    val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier = modifier.clip(shape).background(NightDeep.copy(alpha = 0.7f)).border(2.dp, Ink, shape).padding(vertical = 5.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(label, color = Lilac, style = MaterialTheme.typography.labelSmall)
-        OutlinedText("$value", fontSize = 20.sp, color = Cream)
     }
 }
 

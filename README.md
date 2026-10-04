@@ -54,8 +54,8 @@ only bundled assets are two open-licensed fonts.
 - **A live main menu.** The match on the menu is real: two AIs playing the
   same engine you are about to.
 - **Short matches.** About 5 minutes, or 3 under the Blitz modifier.
-- **Your record** (wins, losses, streaks) and sound setting are kept on the
-  device.
+- **A stats tab.** Win rate, record per difficulty, lifetime totals, personal
+  bests and your most picked towers, all kept on the device.
 
 Towers offered, map, modifier and AI style are rolled independently, so two
 matches rarely play the same way.
@@ -172,12 +172,13 @@ app/src/main/java/com/towerduel/game/
 └── ui/
     ├── GameViewModel.kt     Steps the engine once per display frame, exposes state to the UI
     ├── DemoMatch.kt         The AI-vs-AI match shown on the main menu
-    ├── Profile.kt           The player's record and settings (SharedPreferences)
+    ├── Stats.kt             Lifetime stats and how a finished match adds to them
+    ├── Profile.kt           Saves those stats and the settings (SharedPreferences)
     ├── Navigation.kt        Screen routing
     ├── audio/SoundFx.kt     Synthesizes every sound effect at startup
     ├── components/          Buttons, panels, outlined text and the icon set
     ├── render/              Everything drawn on a lane: terrain, sprites, effects
-    ├── screens/             MainMenu > Draft > Battle > Results
+    ├── screens/             MainMenu (Battle and Stats tabs) > Draft > Battle > Results
     └── theme/               Colours, typography, Material theme
 ```
 
@@ -237,6 +238,9 @@ does not beat an easier one most of the time, or if a personality can never
 win. It also prints a table per matchup (wins, match length, how many
 matches ended before sudden death, lives left), which is the tool to use
 when changing numbers in `GameData.kt`.
+
+`LifetimeStatsTest` covers how a finished match is added to the stats tab's
+numbers: streaks, the per-difficulty record, totals and bests.
 
 ## Releases and versioning
 

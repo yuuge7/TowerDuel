@@ -165,7 +165,21 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         playCues(eng)
         if (eng.outcome != MatchOutcome.ONGOING && !resultRecorded) {
             resultRecorded = true
-            profile.record(eng.outcome)
+            val mine = eng.playerField
+            profile.record(
+                MatchRecord(
+                    outcome = eng.outcome,
+                    difficulty = selectedDifficulty,
+                    towerIds = pickedTroops.map { it.id },
+                    seconds = (eng.elapsedMs / 1000f).toInt(),
+                    round = eng.round,
+                    pops = mine.stats.kills,
+                    unitsSent = mine.stats.unitsSent,
+                    goldEarned = mine.stats.goldEarned.toInt(),
+                    towersBuilt = mine.stats.towersBuilt,
+                    livesLost = (eng.startingLives - mine.lives).coerceAtLeast(0)
+                )
+            )
             ghost = null
         }
         frame++
