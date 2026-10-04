@@ -17,17 +17,19 @@ enum class ShotKind {
     DART, BULLET, SHELL, MORTAR, NET, ORB, // projectiles that chase the target
     GLAIVE,                                // a projectile that flies straight and cuts through a line of units
     BOLT, RAIL, BEAM, FLAME,               // instant hits
-    FROST_PULSE, POISON_PULSE, GUST_PULSE, // hits everything in range at once
+    FROST_PULSE, POISON_PULSE, GUST_PULSE, QUAKE_PULSE, // hits everything in range at once
     NONE;
 
     /** Pulse towers have no single target, so they have no targeting priority either. */
-    val isPulse: Boolean get() = this == FROST_PULSE || this == POISON_PULSE || this == GUST_PULSE
+    val isPulse: Boolean
+        get() = this == FROST_PULSE || this == POISON_PULSE || this == GUST_PULSE || this == QUAKE_PULSE
 }
 
 /**
  * One step of a tower's upgrade track. Multipliers stack on top of every earlier tier.
  * [effectMult] scales whatever the tower's special is: slow, stun or crit chance, poison,
- * income, aura, knockback, weakening, execute threshold, bounty bonus, or how far a beam ramps.
+ * income, either aura, lives restored, knockback, weakening, execute threshold, bounty bonus,
+ * or how far a beam ramps.
  * [extraChains] adds chain jumps, or cuts for a tower that pierces.
  */
 data class UpgradeTier(
@@ -69,7 +71,11 @@ data class TroopType(
     val dotDurationMs: Long = 0L,
     val incomeBonusPerSecond: Float = 0f,
     val auraDamageBonusPct: Float = 0f,
+    /** Towers within [auraRange] fire this much faster. */
+    val auraReloadBonusPct: Float = 0f,
     val auraRange: Float = 0f,
+    /** Lives this tower gives back to its keep, never above what the match started with. */
+    val livesPerMinute: Float = 0f,
     val bonusDamageVsFlyerPct: Float = 0f,
     /** How many units past the first a GLAIVE cuts through. */
     val pierce: Int = 0,
@@ -123,6 +129,13 @@ data class EnemySendType(
     val hasteRadius: Float = 0f,
     /** Ignores slows, stuns and knockback. */
     val controlImmune: Boolean = false,
+    /** Walks underground, out of reach, for this first share of the track (0..1). */
+    val burrowUntil: Float = 0f,
+    /** Other units within [wardRadius] of it take this much less damage. */
+    val wardAuraPct: Float = 0f,
+    val wardRadius: Float = 0f,
+    /** Moves this much faster by the time it is nearly dead, in proportion to health lost. */
+    val enrageSpeedPct: Float = 0f,
     /** Sending this raises the sender's income by this much gold per second for the rest of the match. */
     val incomeBonus: Float = 0f,
     val unlockRound: Int = 1,
@@ -203,6 +216,8 @@ data class Wave(val title: String?, val groups: List<WaveGroup>)
 enum class MatchEventType(val label: String, val blurb: String, val durationSec: Int) {
     GOLD_RAIN("Gold Rain", "Free gold for both sides", 0),
     AMBUSH("Ambush", "An extra wave hits both lanes", 0),
+    SECOND_WIND("Second Wind", "Both keeps regain 10 lives", 0),
+    BOUNTY_RUSH("Bounty Rush", "Popped units pay triple", 12),
     PAYDAY("Payday", "Income is doubled", 14),
     STAMPEDE("Stampede", "Units move 35% faster", 12),
     POWER_SURGE("Power Surge", "Towers hit 40% harder", 12),

@@ -168,7 +168,7 @@ class LanePainter(typeface: Typeface) {
 
         for (i in field.incomingEnemies.indices) {
             val e = field.incomingEnemies[i]
-            if (e.alive) drawUnitShadow(e.type, e.x * u, e.y * u, u)
+            if (e.alive && !engine.isBurrowed(e)) drawUnitShadow(e.type, e.x * u, e.y * u, u)
         }
         for (i in field.incomingEnemies.indices) {
             val e = field.incomingEnemies[i]
@@ -230,6 +230,10 @@ class LanePainter(typeface: Typeface) {
 
     private fun DrawScope.drawEnemy(engine: GameEngine, e: EnemyUnit, u: Float) {
         val now = engine.elapsedMs
+        if (engine.isBurrowed(e)) {
+            drawBurrowMound(e.type, e.x * u, e.y * u, u, now, e.instanceId.toInt())
+            return
+        }
         // A phased unit is out of reach: drawn see-through, as one layer so its parts do not show through each other.
         val phased = engine.isPhased(e)
         if (phased) {
@@ -322,6 +326,18 @@ class LanePainter(typeface: Typeface) {
             FxKind.HASTE -> {
                 val r = fx.size * u * (0.3f + 0.7f * ease)
                 drawCircle(Color(0xFFFFB45C).copy(alpha = 0.75f * (1f - t)), r, c, style = Stroke(0.5f * u))
+            }
+            FxKind.WARD -> {
+                val r = fx.size * u * (0.3f + 0.7f * ease)
+                drawCircle(Color(0xFF8FC1FF).copy(alpha = 0.8f * (1f - t)), r, c, style = Stroke(0.55f * u))
+            }
+            FxKind.QUAKE_RING -> {
+                // The ground rippling outwards, dust at the front of it
+                val r = fx.size * u * (0.15f + 0.85f * ease)
+                drawCircle(Color(0xFFE8D7B8).copy(alpha = 0.25f * (1f - t)), r, c)
+                drawCircle(Ink.copy(alpha = 0.45f * (1f - t)), r, c, style = Stroke(1.1f * u))
+                drawCircle(Color(0xFFF3E9D2).copy(alpha = 0.9f * (1f - t)), r, c, style = Stroke(0.6f * u))
+                drawCircle(Color(0xFFF3E9D2).copy(alpha = 0.6f * (1f - t)), r * 0.62f, c, style = Stroke(0.35f * u))
             }
             FxKind.GUST_RING -> {
                 // Two rings chasing each other outwards
@@ -426,6 +442,7 @@ class LanePainter(typeface: Typeface) {
                 drawLine(Ink.copy(alpha = 1f - t), Offset(c.x - r, c.y + r * 0.6f), Offset(c.x + r, c.y - r * 0.6f), 1.2f * u, StrokeCap.Round)
                 drawLine(Tomato.copy(alpha = 1f - t), Offset(c.x - r, c.y + r * 0.6f), Offset(c.x + r, c.y - r * 0.6f), 0.65f * u, StrokeCap.Round)
             }
+            FxKind.LIFE_GAIN -> floatText("+${fx.value}", c.x, c.y - ease * 3.6f * u, 3.4f * u, Leaf, 1f - t * t * t)
             FxKind.LIFE_TEXT -> floatText("-${fx.value}", c.x, c.y - ease * 4.5f * u, 4.6f * u, Tomato, 1f - t * t * t)
             else -> Unit
         }

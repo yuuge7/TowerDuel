@@ -30,6 +30,9 @@ class TowerInstance(
     /** Fraction of extra damage from Beacons in range; the engine refreshes it when towers change. */
     var auraBonus = 0f
 
+    /** Fraction of extra fire rate from Overclockers in range; refreshed the same way. */
+    var reloadBonus = 0f
+
     // Render-only state: where the barrel points and when it last kicked.
     var aimAngle = -1.5708f
     var lastFiredAtMs = -100_000f
@@ -37,6 +40,9 @@ class TowerInstance(
 
     /** Gold Mines pay out in lumps; this is the gold banked towards the next one. */
     var payoutBank = 0f
+
+    /** A Shrine's progress towards the next life it gives back, 0..1. */
+    var lifeBank = 0f
 
     // Stats with every bought tier applied (match modifiers are applied by the engine on top).
     var damage = type.damage; private set
@@ -50,7 +56,9 @@ class TowerInstance(
     var dotDps = type.dotDamagePerSecond; private set
     var income = type.incomeBonusPerSecond; private set
     var auraPct = type.auraDamageBonusPct; private set
+    var auraReloadPct = type.auraReloadBonusPct; private set
     var auraRange = type.auraRange; private set
+    var livesPerMinute = type.livesPerMinute; private set
     var pierce = type.pierce; private set
     var critChance = type.critChance; private set
     var rampMax = type.rampMax; private set
@@ -86,6 +94,8 @@ class TowerInstance(
         dotDps *= tier.effectMult
         income *= tier.effectMult
         auraPct *= tier.effectMult
+        auraReloadPct *= tier.effectMult
+        livesPerMinute *= tier.effectMult
         // A support tower's "range" is its aura.
         if (type.auraRange > 0f) auraRange *= tier.rangeMult else range *= tier.rangeMult
         return true
@@ -130,6 +140,10 @@ class EnemyUnit(
     /** Speed bonus (as a fraction) from a Drummer nearby, and until when. */
     var haste = 0f
     var hasteUntilMs = 0f
+
+    /** Damage shrugged off (as a fraction) thanks to a Warder nearby, and until when. */
+    var ward = 0f
+    var wardUntilMs = 0f
 }
 
 /** A wave or send unit waiting for its turn to step onto the lane. */
@@ -167,8 +181,8 @@ class Projectile(
 }
 
 enum class FxKind {
-    POP, HIT, EXPLOSION, BOLT, TRACER, BEAM, FLAME, FROST_RING, POISON_CLOUD, GUST_RING,
-    GOLD_TEXT, LIFE_TEXT, CRIT, EXECUTE, DUST, SPARKLE, HEAL, HASTE
+    POP, HIT, EXPLOSION, BOLT, TRACER, BEAM, FLAME, FROST_RING, POISON_CLOUD, GUST_RING, QUAKE_RING,
+    GOLD_TEXT, LIFE_TEXT, LIFE_GAIN, CRIT, EXECUTE, DUST, SPARKLE, HEAL, HASTE, WARD
 }
 
 /** A short-lived visual; carries no gameplay effect. Positions and [size] are in lane units. */

@@ -14,13 +14,32 @@ import kotlin.random.Random
 /** Seconds a wave spends under fire, give or take; turns "wave health" into "damage per second needed". */
 private const val EXPOSURE_SEC = 11f
 private const val EMERGENCY_SEC = 5f
+private const val LATE_SAFETY = 1.1f
 private const val GRID_STEP = 3f
 private const val GRID_MARGIN = 5f
 private const val PUSH_THINK_MS = 300f
 
+/** Income, in gold per second, that the personalities' habitual push sizes were written for. */
+private const val HABIT_INCOME = 40f
+
+/** With more than this many seconds of income in the bank, even a slow thinker spends without dawdling. */
+private const val RICH_SEC = 6f
+private const val RICH_GOLD = 300f
+private const val RICH_THINK_MS = 700f
+
+/**
+ * In sudden death a sent unit is as swollen as the waves are, so gold does more as a push than as
+ * one more tower. An AI that knows it spends this share of its thinks attacking, however thin its wall.
+ */
+private const val SUDDEN_DEATH_PUSH_CHANCE = 0.5f
+private const val SUDDEN_DEATH_PREP_SEC = 40
+
 /** A push is sized to out-last the defense it is sent at by this much. */
 private const val BREAK_MARGIN = 1.1f
-private const val MAX_PUSH_GOLD = 1500f
+private const val MAX_PUSH_GOLD = 2500f
+
+/** Share of a beam's full ramp it gets to use on an ordinary wave. */
+private const val RAMP_UPTIME = 0.15f
 
 /** A pulse tower hits everything in range, so its damage counts several times over. */
 private const val PULSE_TARGETS = 2.5f
@@ -48,13 +67,22 @@ class AiController(
         val sharpness: Float,
         val reactsToLeaks: Boolean,
         val timesPushes: Boolean,
-        val pushScale: Float
+        val pushScale: Float,
+        /** How often a think with gold to spare beyond the next push goes into the defense instead. */
+        val thrift: Float,
+        /** Most purchases in one think, once the gold comes in faster than one at a time can spend it. */
+        val spree: Int,
+        /**
+         * How far past its target a push may go. A careful player sends what the push needs and
+         * keeps the rest for its own lane; a careless one throws in everything it has.
+         */
+        val overspend: Float
     )
 
     private val skill = when (difficulty) {
-        Difficulty.EASY -> Skill(2300f, 0.30f, 0.6f, 0.1f, reactsToLeaks = false, timesPushes = false, pushScale = 0.7f)
-        Difficulty.MEDIUM -> Skill(1500f, 0.18f, 0.3f, 0.45f, reactsToLeaks = true, timesPushes = false, pushScale = 1f)
-        Difficulty.HARD -> Skill(650f, 0.02f, 0f, 1f, reactsToLeaks = true, timesPushes = true, pushScale = 1f)
+        Difficulty.EASY -> Skill(2300f, 0.30f, 0.6f, 0.1f, reactsToLeaks = false, timesPushes = false, pushScale = 0.7f, thrift = 0.3f, spree = 1, overspend = Float.MAX_VALUE)
+        Difficulty.MEDIUM -> Skill(1500f, 0.18f, 0.3f, 0.45f, reactsToLeaks = true, timesPushes = false, pushScale = 1f, thrift = 0.45f, spree = 2, overspend = Float.MAX_VALUE)
+        Difficulty.HARD -> Skill(650f, 0.02f, 0f, 1f, reactsToLeaks = true, timesPushes = true, pushScale = 1f, thrift = 0.6f, spree = 3, overspend = 1.5f)
     }
 
     /** What makes one personality play differently from another. To add a personality, add a row. */
@@ -132,19 +160,32 @@ class AiController(
         if (thinkTimerMs > 0f) return
         thinkTimerMs = skill.thinkMs * (0.8f + rng.nextFloat() * 0.5f)
         if (engine.outcome != MatchOutcome.ONGOING) return
+        // Late in a long match the gold comes in faster than one purchase per slow think can spend it.
+        val bank = own.gold - RICH_GOLD - engine.incomePerSec(own) * RICH_SEC
+        if (bank > 0f) thinkTimerMs = minOf(thinkTimerMs, RICH_THINK_MS)
         if (rng.nextFloat() < skill.hesitate) return // hesitates and wastes the beat
 
         observeLane(own)
-        think(engine, own, foe)
+        think(engine, own, foe, bank)
     }
 
-    private fun think(engine: GameEngine, own: Battlefield, foe: Battlefield) {
+    private fun think(engine: GameEngine, own: Battlefield, foe: Battlefield, bank: Float) {
         val power = lanePower(engine, own)
         val need = requiredPower(engine, own, foe)
         val emergency = skill.reactsToLeaks && deepThreat(own) > power * EMERGENCY_SEC
 
+        // More in the bank than the next push can use: some of it goes into the lane, needed or not.
+        // Sends alone cannot empty a late-game purse, and nobody should lose sitting on a fortune.
+        if (!emergency && bank > pushTarget(engine, own, foe) && rng.nextFloat() < skill.thrift) {
+            if (defend(engine, own, urgent = false)) return
+        }
+
         when {
-            emergency -> defend(engine, own, urgent = true)
+            // Checked before the emergency: in sudden death the lane is always about to leak.
+            engine.suddenDeath && skill.reactsToLeaks && rng.nextFloat() < SUDDEN_DEATH_PUSH_CHANCE ->
+                invest(engine, own, foe)
+            // A lane with no room and nothing left to upgrade cannot be saved by waiting.
+            emergency -> if (!defend(engine, own, urgent = true)) invest(engine, own, foe)
             pushing -> continuePush(engine, own, foe)
             power < need && rng.nextFloat() >= style.recklessness * (power / need) -> {
                 // Nothing left to buy means the gold is better spent attacking.
@@ -184,10 +225,16 @@ class AiController(
         var walking = 0f
         for (e in own.incomingEnemies) walking += e.hp
         for (p in own.pendingSpawns) walking += p.type.maxHp * p.hpScale
-        var hp = maxOf(engine.waveHp(engine.round + 1), walking)
+        // Sudden-death waves outgrow whatever can be built in the seconds between them, so a sharp
+        // player starts on that wall while there is still time.
+        val ahead = if (skill.timesPushes && engine.timeRemainingSec() <= SUDDEN_DEATH_PREP_SEC) 3 else 1
+        var hp = maxOf(engine.waveHp(engine.round + ahead), walking)
         // A sharp player counts the opponent's purse as a push that has not been sent yet.
         if (skill.timesPushes) hp += foe.gold * 0.8f
-        return hp / EXPOSURE_SEC * style.safety * (1f + defenseBias)
+        // Cutting corners on defense is an opening gambit. In the second half the waves alone
+        // punish it, so by then even the reckless build a full wall.
+        val safety = if (engine.round * 2 >= engine.totalRounds) maxOf(style.safety, LATE_SAFETY) else style.safety
+        return hp / EXPOSURE_SEC * safety * (1f + defenseBias)
     }
 
     private fun lanePower(engine: GameEngine, field: Battlefield): Float {
@@ -211,8 +258,9 @@ class AiController(
         if (!type.isAttacker) return 0f
         var dps = damage * shots * 1000f / reloadMs
         if (crit > 0f) dps *= 1f + crit * (type.critMultiplier - 1f)
-        // A beam is rarely on one unit long enough to reach full strength.
-        if (rampMax > 0f) dps *= 1f + rampMax * 0.4f
+        // A beam is rarely on one unit long enough to reach full strength, and most of a wave
+        // is dead before it has ramped at all.
+        if (rampMax > 0f) dps *= 1f + rampMax * RAMP_UPTIME
         if (execute > 0f) dps *= 1f + execute
         if (splash > 0f) dps *= 1f + splash / 9f
         if (chains > 0) dps *= 1f + 0.5f * chains
@@ -221,6 +269,7 @@ class AiController(
             ShotKind.FROST_PULSE -> dps = dps * PULSE_TARGETS + slow * 45f
             ShotKind.POISON_PULSE -> dps = (dps + dot) * PULSE_TARGETS
             ShotKind.GUST_PULSE -> dps = dps * PULSE_TARGETS + knockback * 5f
+            ShotKind.QUAKE_PULSE -> dps = dps * PULSE_TARGETS + stun * 30f
             // Burn on a tower that also splashes lands on most of what it touches.
             else -> dps += dot * (if (splash > 0f) 1.5f else 0.5f)
         }
@@ -237,6 +286,13 @@ class AiController(
 
     /** Buys (or saves for) the best defensive purchase. False if there is nothing left to buy. */
     private fun defend(engine: GameEngine, own: Battlefield, urgent: Boolean): Boolean {
+        if (!buyDefense(engine, own, urgent)) return false
+        var more = skill.spree - 1
+        while (more > 0 && own.gold > RICH_GOLD + engine.incomePerSec(own) * RICH_SEC && buyDefense(engine, own, urgent)) more--
+        return true
+    }
+
+    private fun buyDefense(engine: GameEngine, own: Battlefield, urgent: Boolean): Boolean {
         val options = defenseOptions(engine, own, urgent)
         if (options.isEmpty()) return false
         options.sortByDescending { it.value }
@@ -268,10 +324,11 @@ class AiController(
         // A new tower of each drafted type, wherever it would do most. No spot left means no option.
         val cover = coverCounts(engine, own)
         for (type in own.draftedTroops) {
-            if (type.incomeBonusPerSecond > 0f) continue // economy, bought in invest()
+            if (worksAnywhere(type)) continue // economy and Shrines are bought in invest()
             val spot = bestSpot(engine, own, type, cover, powers, lateBias) ?: continue
             val gain = if (type.auraRange > 0f) {
-                spot.score * type.auraDamageBonusPct / 100f
+                // A faster-firing tower is worth as much as one that hits that much harder.
+                spot.score * (type.auraDamageBonusPct + type.auraReloadBonusPct) / 100f
             } else {
                 power(
                     type, type.damage * engine.modifier.damageMultiplier, 1,
@@ -287,7 +344,7 @@ class AiController(
 
         for ((i, t) in own.towers.withIndex()) {
             val tier = t.nextUpgrade ?: continue
-            if (t.income > 0f) continue
+            if (worksAnywhere(t.type)) continue
             val gain = upgradeGain(engine, own, t, tier, powers, powers[i])
             if (gain > 0f) out.add(Purchase(null, t, t.x, t.y, tier.cost, gain / tier.cost * mixWeight(t.type)))
         }
@@ -297,12 +354,13 @@ class AiController(
     private fun upgradeGain(
         engine: GameEngine, own: Battlefield, t: TowerInstance, tier: UpgradeTier, powers: FloatArray, current: Float
     ): Float {
-        if (t.auraPct > 0f) {
+        val aura = t.auraPct + t.auraReloadPct
+        if (aura > 0f) {
             var boosted = 0f
             for ((i, other) in own.towers.withIndex()) {
                 if (other !== t && dist(other.x, other.y, t.x, t.y) <= t.auraRange) boosted += powers[i]
             }
-            return boosted * t.auraPct * (tier.effectMult - 1f) / 100f
+            return boosted * aura * (tier.effectMult - 1f) / 100f
         }
         val pierces = t.type.pierce > 0
         val upgraded = power(
@@ -399,8 +457,8 @@ class AiController(
         }
         if (spots.isEmpty()) return null
         spots.sortByDescending { it.score }
-        // A Gold Mine works anywhere; anything else needs a spot where it actually does something.
-        if (type.incomeBonusPerSecond <= 0f && spots[0].score <= 0f) return null
+        // A Gold Mine or a Shrine works anywhere; anything else needs a spot where it actually does something.
+        if (!worksAnywhere(type) && spots[0].score <= 0f) return null
         val pool = (spots.size * skill.sloppiness).toInt().coerceAtLeast(1)
         return spots[rng.nextInt(pool)]
     }
@@ -418,8 +476,8 @@ class AiController(
             }
             return boosted
         }
-        // A Gold Mine should not take a spot a real tower could use.
-        if (type.incomeBonusPerSecond > 0f) return -path.coverage(x, y, 16f, LaneSpace.WIDTH)
+        // A Gold Mine or a Shrine should not take a spot a real tower could use.
+        if (worksAnywhere(type)) return -path.coverage(x, y, 16f, LaneSpace.WIDTH)
 
         val reach = engine.baseReach(type)
         val r2 = reach * reach
@@ -454,15 +512,18 @@ class AiController(
     private fun invest(engine: GameEngine, own: Battlefield, foe: Battlefield) {
         val ecoWindow = engine.timeRemainingSec() > 60
         if (ecoWindow && buyMine(engine, own)) return
+        if (buyShrine(engine, own)) return
 
         val spare = own.gold - style.reserveGold
-        val pushTarget = pushTarget(engine, foe)
+        val pushTarget = pushTarget(engine, own, foe)
         if (!pushing) {
             val goodMoment = !skill.timesPushes ||
                 engine.elapsedMs - engine.roundStartedAtMs < 4000f || spare >= pushTarget * 1.5f
             if (spare >= pushTarget && goodMoment) {
                 pushing = true
-                pushBudget = spare
+                // The Rusher and the Gambler bet the whole purse, whatever their skill: that is who they are.
+                val allIn = personality == AiPersonality.RUSHER || personality == AiPersonality.GAMBLER
+                pushBudget = if (allIn) spare else minOf(spare, pushTarget * skill.overspend)
                 fancy = engine.roster.filter { engine.isUnlocked(it) }.randomOrNull(rng)
             } else if (ecoWindow && rng.nextFloat() < style.ecoShare) {
                 sendForIncome(engine, own, foe, spare)
@@ -500,6 +561,35 @@ class AiController(
         }
         return false
     }
+
+    /**
+     * Builds or upgrades a Shrine once enough lives are missing for it to be worth the gold.
+     * True if this think is spent on it (buying, or saving up to).
+     */
+    private fun buyShrine(engine: GameEngine, own: Battlefield): Boolean {
+        val shrineType = own.draftedTroops.firstOrNull { it.livesPerMinute > 0f } ?: return false
+        val missing = engine.startingLives - own.lives
+        if (missing < 8) return false
+        val shrines = own.towers.filter { it.livesPerMinute > 0f }
+        val upgradable = shrines.firstOrNull { it.nextUpgrade != null }
+
+        if (shrines.isEmpty() || (shrines.size < 2 && upgradable == null && missing >= 25)) {
+            if (own.gold >= shrineType.cost) {
+                val spot = bestSpot(engine, own, shrineType, FloatArray(engine.path.pointCount), FloatArray(own.towers.size), false)
+                if (spot != null) engine.placeTower(own, shrineType, spot.x, spot.y)
+            }
+            return true
+        }
+        if (upgradable != null && missing >= 15) {
+            val tier = upgradable.nextUpgrade!!
+            if (own.gold >= tier.cost) engine.upgradeTower(own, upgradable.instanceId)
+            return true
+        }
+        return false
+    }
+
+    /** Towers whose effect does not depend on where they stand: they go wherever is least useful to others. */
+    private fun worksAnywhere(type: TroopType): Boolean = type.incomeBonusPerSecond > 0f || type.livesPerMinute > 0f
 
     private fun sendForIncome(engine: GameEngine, own: Battlefield, foe: Battlefield, spare: Float) {
         var best: EnemySendType? = null
@@ -609,8 +699,8 @@ class AiController(
     }
 
     /** How much gold the next push should be worth before it is sent. */
-    private fun pushTarget(engine: GameEngine, foe: Battlefield): Float {
-        val habit = when (personality) {
+    private fun pushTarget(engine: GameEngine, own: Battlefield, foe: Battlefield): Float {
+        val size = when (personality) {
             AiPersonality.RUSHER -> 40f + pushRoll * 60f
             AiPersonality.BALANCED -> 130f + pushRoll * 120f + engine.round * 6f
             AiPersonality.TURTLE -> 260f + pushRoll * 200f + engine.round * 10f
@@ -626,9 +716,15 @@ class AiController(
         // absorb and saves until it can send more than that. The impatient ones only bother now and then.
         val impatient = personality == AiPersonality.RUSHER || personality == AiPersonality.SWARMER ||
             (personality == AiPersonality.GAMBLER && pushRoll < 0.6f)
+        // The sizes above are for an early-match income. A push that mattered then is small change
+        // once the income has grown, so the habit grows with it.
+        val habit = size * (engine.incomePerSec(own) / HABIT_INCOME).coerceAtLeast(1f)
         val calculates = skill.timesPushes && (!impatient || pushCount % 3 == 2)
-        val target = if (calculates) maxOf(habit, breakBudget(engine, foe) * style.ambition) else habit
-        return target * skill.pushScale
+        if (!calculates) return habit * skill.pushScale
+        // A wall too thick to break with any purse it could save up is not worth saving for:
+        // push by habit for the income, and let the surplus thicken its own wall instead.
+        val breaking = breakBudget(engine, foe) * style.ambition
+        return (if (breaking <= MAX_PUSH_GOLD) maxOf(habit, breaking) else habit) * skill.pushScale
     }
 
     /** Gold worth of units that should be more than [foe]'s towers can kill in one pass. */
@@ -639,7 +735,7 @@ class AiController(
             bestHpPerGold = maxOf(bestHpPerGold, WaveGenerator.unitHp(unit) * unit.count / unit.cost)
         }
         val absorbs = lanePower(engine, foe) * EXPOSURE_SEC * BREAK_MARGIN
-        return (absorbs / (bestHpPerGold * engine.sendHpScale())).coerceAtMost(MAX_PUSH_GOLD)
+        return absorbs / (bestHpPerGold * engine.sendHpScale())
     }
 
     private fun dist(x1: Float, y1: Float, x2: Float, y2: Float): Float {
@@ -682,14 +778,15 @@ class AiController(
         private fun draftValue(type: TroopType): Float {
             var dps = type.baseDps
             if (type.critChance > 0f) dps *= 1f + type.critChance * (type.critMultiplier - 1f)
-            if (type.rampMax > 0f) dps *= 1f + type.rampMax * 0.4f
+            if (type.rampMax > 0f) dps *= 1f + type.rampMax * RAMP_UPTIME
             if (type.splashRadius > 0f) dps *= 1f + type.splashRadius / 9f
             if (type.chainTargets > 0) dps *= 1f + 0.5f * type.chainTargets
             if (type.pierce > 0) dps *= 1f + 0.35f * type.pierce
             dps *= 1f + type.executeBelowPct / 100f + type.bountyBonusPct / 400f
             dps += type.dotDamagePerSecond * PULSE_TARGETS + type.slowFactor * 45f + type.stunChance * 14f
             dps += type.knockback * 5f + type.vulnerabilityPct * 0.6f
-            dps += type.incomeBonusPerSecond * 12f + type.auraDamageBonusPct * 0.9f
+            dps += type.incomeBonusPerSecond * 12f + (type.auraDamageBonusPct + type.auraReloadBonusPct) * 0.9f
+            dps += type.livesPerMinute * 3f
             return dps / type.cost
         }
     }

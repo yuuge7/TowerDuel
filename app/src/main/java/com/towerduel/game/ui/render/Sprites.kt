@@ -241,6 +241,48 @@ fun DrawScope.drawTower(
             drawCircle(Ink, 0.75f * u, Offset(cx, cy))
             drawCircle(Tomato, 0.3f * u, Offset(cx, cy))
         }
+        "comet" -> {
+            blob(Gunmetal, cx, cy, 2.2f * u, ow)
+            blob(color, cx, cy, 1.7f * u, ow)
+            // The star it watches, flaring when it calls one down
+            val flare = (1f - sinceFiredMs / 500f).coerceIn(0f, 1f)
+            if (flare > 0f) drawCircle(Color.White.copy(alpha = 0.5f * flare), (1.4f + flare) * u, Offset(cx, cy))
+            drawStar(Color.White, cx, cy, (1.05f + 0.4f * flare) * u, 0f)
+            drawCircle(Sun, 0.3f * u, Offset(cx + 1.1f * u, cy - 1.1f * u))
+        }
+        "thumper" -> {
+            blob(color.darken(0.25f), cx, cy, 2.2f * u, ow)
+            // The hammer head: seen from above it swells as it comes down
+            val slam = (1f - sinceFiredMs / 260f).coerceIn(0f, 1f)
+            val half = (1.25f + 0.45f * slam) * u
+            slab(color, cx - half, cy - half, half * 2f, half * 2f, 0.45f * u, ow)
+            drawLine(Ink.copy(alpha = 0.45f), Offset(cx - half * 0.6f, cy), Offset(cx + half * 0.6f, cy), 0.25f * u, StrokeCap.Round)
+            drawLine(Ink.copy(alpha = 0.45f), Offset(cx, cy - half * 0.6f), Offset(cx, cy + half * 0.6f), 0.25f * u, StrokeCap.Round)
+        }
+        "overclock" -> {
+            blob(Gunmetal, cx, cy, 2.1f * u, ow)
+            // A cog that never stops turning
+            rotate(timeMs * 0.09f, Offset(cx, cy)) {
+                for (tooth in 0 until 8) {
+                    rotate(tooth * 45f, Offset(cx, cy)) {
+                        drawRoundRect(color, Offset(cx - 0.38f * u, cy - 1.95f * u), Size(0.76f * u, 0.9f * u), CornerRadius(0.15f * u))
+                    }
+                }
+            }
+            blob(color, cx, cy, 1.3f * u, ow * 0.8f)
+            drawCircle(Gunmetal, 0.5f * u, Offset(cx, cy))
+        }
+        "shrine" -> {
+            val glow = (1f - sinceFiredMs / 700f).coerceIn(0f, 1f)
+            val beat = 0.5f + 0.5f * sin(timeMs * 0.004f)
+            drawCircle(Tomato.copy(alpha = 0.18f + 0.3f * glow), (2.2f + 0.8f * glow) * u, Offset(cx, cy))
+            blob(color, cx, cy, 1.95f * u, ow)
+            // A heart, beating slowly
+            val h = (0.62f + 0.08f * beat + 0.25f * glow) * u
+            drawCircle(Tomato, h, Offset(cx - h * 0.8f, cy - h * 0.35f))
+            drawCircle(Tomato, h, Offset(cx + h * 0.8f, cy - h * 0.35f))
+            shape(Tomato, 0f, cx - h * 1.75f, cy - h * 0.05f, cx + h * 1.75f, cy - h * 0.05f, cx, cy + h * 1.9f)
+        }
         else -> {
             // A tower with no art of its own: a plain turret in its colour.
             val kind = type.shot
@@ -393,6 +435,56 @@ fun DrawScope.drawUnit(
             slab(Color(0xFF8A4B2A), cx - rx * 0.55f, cy + ry * 0.38f, rx * 1.1f, ry * 0.56f, ry * 0.15f, ow * 0.8f)
             drawRoundRect(Color(0xFFF4E6C8), Offset(cx - rx * 0.55f, cy + ry * 0.38f), Size(rx * 1.1f, ry * 0.2f), CornerRadius(ry * 0.1f))
         }
+        "burrower" -> {
+            // A snout and two front teeth
+            drawCircle(Color(0xFFFF9EB0), r * 0.2f, Offset(cx + dirX * r * 0.16f, cy + ry * 0.3f))
+            for (side in -1..1 step 2) {
+                drawRoundRect(Color.White, Offset(cx + side * r * 0.12f - r * 0.08f + dirX * r * 0.16f, cy + ry * 0.48f), Size(r * 0.16f, r * 0.22f))
+            }
+        }
+        "warder" -> {
+            // The shield it carries for everyone else
+            shape(
+                Color.White, ow * 0.7f,
+                cx - rx * 0.4f, cy + ry * 0.2f, cx + rx * 0.4f, cy + ry * 0.2f,
+                cx + rx * 0.4f, cy + ry * 0.55f, cx, cy + ry * 0.92f, cx - rx * 0.4f, cy + ry * 0.55f
+            )
+            drawCircle(body, r * 0.12f, Offset(cx, cy + ry * 0.5f))
+        }
+        "berserker" -> {
+            // Horns
+            for (side in -1..1 step 2) {
+                shape(
+                    Color.White, ow * 0.7f,
+                    cx + side * rx * 0.35f, cy - ry * 0.78f, cx + side * rx * 0.95f, cy - ry * 1.3f, cx + side * rx * 0.7f, cy - ry * 0.55f
+                )
+            }
+        }
+        "wyvern" -> {
+            // Horns and a pale belly
+            for (side in -1..1 step 2) {
+                shape(
+                    Sun, ow * 0.7f,
+                    cx + side * rx * 0.3f, cy - ry * 0.82f, cx + side * rx * 0.62f, cy - ry * 1.35f, cx + side * rx * 0.62f, cy - ry * 0.62f
+                )
+            }
+            drawOval(body.lighten(0.45f), Offset(cx - rx * 0.45f, cy + ry * 0.25f), Size(rx * 0.9f, ry * 0.55f))
+        }
+        "colossus" -> {
+            // Cracked stone and an iron brow band
+            val crack = Stroke(ow * 0.8f, cap = StrokeCap.Round)
+            scratchPath.rewind()
+            scratchPath.moveTo(cx - rx * 0.55f, cy + ry * 0.2f)
+            scratchPath.lineTo(cx - rx * 0.3f, cy + ry * 0.5f)
+            scratchPath.lineTo(cx - rx * 0.45f, cy + ry * 0.8f)
+            scratchPath.moveTo(cx + rx * 0.5f, cy + ry * 0.1f)
+            scratchPath.lineTo(cx + rx * 0.3f, cy + ry * 0.45f)
+            scratchPath.lineTo(cx + rx * 0.55f, cy + ry * 0.7f)
+            drawPath(scratchPath, Ink.copy(alpha = 0.6f), style = crack)
+            drawRoundRect(Ink, Offset(cx - rx - ow, cy - ry * 0.62f - ow), Size(2f * (rx + ow), ry * 0.3f + 2f * ow), CornerRadius(ry * 0.1f))
+            drawRoundRect(Gunmetal, Offset(cx - rx, cy - ry * 0.62f), Size(2f * rx, ry * 0.3f), CornerRadius(ry * 0.1f))
+            for (side in -1..1) drawCircle(Stone, r * 0.06f, Offset(cx + side * rx * 0.6f, cy - ry * 0.47f))
+        }
         "juggernaut" -> {
             // Spikes along the top
             val top = cy - ry
@@ -415,7 +507,9 @@ fun DrawScope.drawUnit(
         drawCircle(Color.White, eyeR, Offset(ex, eyeY))
         drawCircle(Ink, eyeR * 0.52f, Offset(ex + dirX * eyeR * 0.4f, eyeY + dirY * eyeR * 0.4f))
     }
-    if (type.id == "boss" || type.id == "tank" || type.id == "juggernaut" || type.id == "troll") {
+    if (type.id == "boss" || type.id == "tank" || type.id == "juggernaut" || type.id == "troll" ||
+        type.id == "berserker" || type.id == "colossus" || type.id == "wyvern"
+    ) {
         // Angry brows
         val brow = Stroke(ow * 1.3f, cap = StrokeCap.Round)
         for (side in -1..1 step 2) {
@@ -476,6 +570,22 @@ fun DrawScope.drawUnit(
             else -> Tomato
         }
         drawRoundRect(barColor, Offset(left, top), Size(w * hpFrac.coerceIn(0f, 1f), h), CornerRadius(h))
+    }
+}
+
+/** What shows of a unit while it tunnels: a mound of earth, shaking as it moves. */
+fun DrawScope.drawBurrowMound(type: EnemySendType, cx: Float, cy: Float, u: Float, timeMs: Float, seed: Int) {
+    val r = type.radius * u
+    val ow = OUTLINE * u
+    val wobble = sin(timeMs * 0.02f + seed) * r * 0.06f
+    val earth = Color(0xFF8A5E3A)
+    drawOval(Ink, Offset(cx - r * 1.05f - ow, cy - r * 0.5f - ow + wobble), Size(r * 2.1f + 2f * ow, r * 1.15f + 2f * ow))
+    drawOval(earth, Offset(cx - r * 1.05f, cy - r * 0.5f + wobble), Size(r * 2.1f, r * 1.15f))
+    drawOval(earth.lighten(0.25f), Offset(cx - r * 0.6f, cy - r * 0.38f + wobble), Size(r * 0.9f, r * 0.4f))
+    // Clods thrown up behind it
+    for (k in 0 until 3) {
+        val phase = (timeMs * 0.003f + k * 0.33f + seed * 0.17f) % 1f
+        drawCircle(earth.darken(0.2f).copy(alpha = 1f - phase), r * 0.16f, Offset(cx + (k - 1) * r * 0.6f, cy - r * 0.4f - phase * r * 0.9f))
     }
 }
 

@@ -253,8 +253,12 @@ private fun RosterCard(roster: List<EnemySendType>) {
 @Composable
 private fun StatBars(troop: TroopType) {
     if (!troop.isAttacker) {
-        val text = if (troop.incomeBonusPerSecond > 0f) "+${troop.incomeBonusPerSecond.roundToInt()} gold per second"
-        else "+${troop.auraDamageBonusPct.roundToInt()}% damage to nearby towers"
+        val text = when {
+            troop.incomeBonusPerSecond > 0f -> "+${troop.incomeBonusPerSecond.roundToInt()} gold per second"
+            troop.livesPerMinute > 0f -> "+1 life every ${(60f / troop.livesPerMinute).roundToInt()} seconds"
+            troop.auraReloadBonusPct > 0f -> "+${troop.auraReloadBonusPct.roundToInt()}% fire rate to nearby towers"
+            else -> "+${troop.auraDamageBonusPct.roundToInt()}% damage to nearby towers"
+        }
         Text(text, color = Sun, style = MaterialTheme.typography.labelSmall)
         return
     }

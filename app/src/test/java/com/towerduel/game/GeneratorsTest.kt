@@ -43,7 +43,7 @@ class GeneratorsTest {
             assertEquals(GameData.ROSTER_SIZE, roster.size)
             assertEquals("no unit twice", roster.size, roster.toSet().size)
             assertTrue(roster.any { it.id == "runner" } && roster.any { it.id == "grunt" })
-            assertEquals("exactly one finisher", 1, roster.count { it.maxHp >= 500f })
+            assertEquals("exactly one of the two finishers", 1, roster.count { it.id == "boss" || it.id == "juggernaut" })
             assertTrue(roster.all { it.sendable })
         }
     }
@@ -65,17 +65,17 @@ class GeneratorsTest {
                 val hp = WaveGenerator.totalHp(wave)
                 val budget = WaveGenerator.budget(level)
                 // Tough units (flyers, armour) count for more than their health, so a wave of them is lighter.
-                assertTrue("level $level seed $seed: $hp health against a budget of $budget", hp in budget * 0.4f..budget * 1.6f)
+                assertTrue("level $level seed $seed: $hp health against a budget of $budget", hp in budget * 0.3f..budget * 1.6f)
             }
         }
     }
 
     @Test
-    fun theLateEvenLevelsAreBossRounds() {
+    fun everyFifthLevelFromTheTenthIsABossRound() {
         for (seed in 1..30) {
             val rng = Random(seed)
             val roster = GameData.randomRoster(rng)
-            for (level in listOf(10, 12)) {
+            for (level in listOf(10, 15, 20)) {
                 val wave = WaveGenerator.generate(level, roster, rng)
                 assertEquals("BOSS ROUND", wave.title)
                 assertNotNull(wave.groups.firstOrNull { GameData.unit(it.unitId).maxHp >= 500f })

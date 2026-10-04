@@ -504,13 +504,15 @@ private fun towerStatLine(tower: TowerInstance, eng: GameEngine): String {
     val head = if (tower.level > 0) "${type.name} Lv ${tower.level + 1}" else type.name
     val stats = when {
         type.incomeBonusPerSecond > 0f -> "+${oneDecimal(tower.income)} gold/s"
+        type.livesPerMinute > 0f -> "+1 life every ${(60f / tower.livesPerMinute).roundToInt()} seconds"
+        type.auraReloadBonusPct > 0f -> "+${tower.auraReloadPct.roundToInt()}% fire rate to towers in range"
         type.auraDamageBonusPct > 0f -> "+${tower.auraPct.roundToInt()}% damage to towers in range"
         // Their hit damage is a rounding error; the effect is the point.
         type.slowFactor > 0f -> "Slows ${(tower.slow * 100f).roundToInt()}% · range $range"
         type.dotDamagePerSecond > 0f -> "Poison ${oneDecimal(tower.dotDps)}/s · range $range"
         else -> {
             val damage = eng.shotDamage(tower).roundToInt()
-            val shotsPerSec = oneDecimal(1000f / tower.reloadMs)
+            val shotsPerSec = oneDecimal(1000f / eng.reloadMs(tower))
             "DMG $damage · range $range · $shotsPerSec/s"
         }
     }

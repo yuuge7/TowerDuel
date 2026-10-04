@@ -15,14 +15,14 @@ private const val MAX_GROUP_SPAN_MS = 11_000f
 
 /**
  * Builds a round's wave from the match's roster: a health budget that grows with the level,
- * spent on a random theme. No two matches get the same twelve waves.
+ * spent on a random theme. No two matches get the same waves.
  */
 object WaveGenerator {
 
     private enum class Shape { MIXED, RUSH, SWARM, AIR, HEAVY, BOSS }
 
     /** Total wave health (before the per-level toughness scale) at [level], 1..WAVE_LEVELS. */
-    fun budget(level: Int): Float = 60f + 40f * level + 10f * level * level
+    fun budget(level: Int): Float = 70f + 45f * level + 5f * level * level
 
     /** Health one unit brings, counting what it bursts into. */
     fun unitHp(type: EnemySendType): Float {
@@ -56,8 +56,8 @@ object WaveGenerator {
         val filler = regulars.firstOrNull { it.id == "grunt" } ?: regulars.first()
 
         val shape = when {
-            // The last even levels are boss rounds, if the roster has anything boss-sized by then.
-            level >= 10 && level % 2 == 0 && finishers.isNotEmpty() -> Shape.BOSS
+            // Every fifth level from the tenth is a boss round, if the roster has anything boss-sized by then.
+            level >= 10 && level % 5 == 0 && finishers.isNotEmpty() -> Shape.BOSS
             else -> {
                 val options = ArrayList<Shape>()
                 repeat(4) { options.add(Shape.MIXED) }
@@ -120,10 +120,21 @@ object WaveGenerator {
             counts[type] = ((counts[type] ?: 0) + count).coerceAtMost(MAX_GROUP)
             spent += count * each
         }
-        // A skipped unit, or a capped batch of tiny ones, leaves budget unspent: top up with plain soldiers.
-        if (spent < budget * 0.85f) {
-            val extra = ((budget - spent) / unitHp(filler)).roundToInt().coerceAtLeast(if (counts.isEmpty()) 1 else 0)
-            if (extra > 0) counts[filler] = ((counts[filler] ?: 0) + extra).coerceAtMost(MAX_GROUP)
+        // A skipped unit, or a capped batch of small ones, leaves budget unspent. Top it up with the
+        // biggest units that still fit, so a late wave is made of heavyweights, not of hundreds of Grunts.
+        val reinforcements = (regulars + (if (level >= 12) finishers else emptyList())).sortedByDescending { unitHp(it) }
+        var passes = 0
+        while (spent < budget * 0.85f && passes < 4) {
+            passes++
+            val remaining = budget - spent
+            val type = reinforcements.firstOrNull { unitHp(it) * toughness(it) <= remaining && (counts[it] ?: 0) < MAX_GROUP }
+                ?: filler
+            val each = unitHp(type) * toughness(type)
+            val room = MAX_GROUP - (counts[type] ?: 0)
+            val extra = (remaining / each).roundToInt().coerceIn(if (counts.isEmpty()) 1 else 0, room)
+            if (extra <= 0) break
+            counts[type] = (counts[type] ?: 0) + extra
+            spent += extra * each
         }
 
         val groups = ArrayList<WaveGroup>()

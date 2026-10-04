@@ -28,47 +28,53 @@ only bundled assets are two open-licensed fonts.
 
 ## Features
 
-- **Draft your defense.** Each match offers you 5 of the 20 towers and you
+- **Draft your defense.** Each match offers you 5 of the 24 towers and you
   keep 3. The AI drafts from its own offer, so neither side knows what the
   other holds until the towers go down.
-- **20 towers**, each with a two-step upgrade track. Besides plain guns
+- **24 towers**, each with a three-step upgrade track. Besides plain guns
   there is splash (Bomb Tower, Mortar), chain lightning (Tesla Coil), slows
-  (Frost Spire), stuns (Stun Turret), poison and fire (Poison Totem, Flame
-  Tower), a beam that ramps up on one target (Prism), a blade that cuts
-  through a whole line (Glaive Thrower), crits (Crossbow), a curse that makes
-  everything else hit harder (Hex Totem), knockback (Gust Fan), executions
-  (Reaper), extra bounties (Bounty Hunter), anti-air (Flak Net), a damage
-  aura (Beacon) and pure economy (Gold Mine).
-- **14 units, 8 per match.** Every match rolls its own roster: Runner and
+  (Frost Spire), stuns (Stun Turret, and Thumper for a whole crowd), poison
+  and fire (Poison Totem, Flame Tower), a beam that ramps up on one target
+  (Prism), a blade that cuts through a whole line (Glaive Thrower), crits
+  (Crossbow), a curse that makes everything else hit harder (Hex Totem),
+  knockback (Gust Fan), executions (Reaper), extra bounties (Bounty Hunter),
+  anti-air (Flak Net), artillery that reaches the whole lane (Comet Caller),
+  auras for damage and for fire rate (Beacon, Overclocker), a Shrine that
+  gives lost lives back, and pure economy (Gold Mine).
+- **19 units, 8 per match.** Every match rolls its own roster: Runner and
   Grunt, one finisher (Boss or Juggernaut) and five of Swarm, Drummer, Flyer,
-  Tank, Phantom, Healer, Bulwark, Splitter, Troll and Brood Mother. Both
-  sides send from that roster, and the waves are built from it. Armour,
-  regeneration, phasing out of reach, haste auras and immunity to slows all
-  ask for different towers.
-- **Waves that are never the same twice.** Each round's wave is generated
-  for the match: sometimes a mixed bag, sometimes a themed one (Rush, Swarm,
-  Air Raid, Heavy Armour, Boss Round). The same wave hits both lanes, each
-  tougher than the last. After the final round comes sudden death, where
-  waves grow faster and tougher until one side breaks.
+  Tank, Phantom, Healer, Bulwark, Splitter, Troll, Brood Mother, Burrower,
+  Warder, Berserker, Wyvern and Colossus. Both sides send from that roster,
+  and the waves are built from it. Armour, regeneration, phasing out of
+  reach, tunnelling under the first stretch of track, haste auras, damage
+  wards, rage and immunity to slows all ask for different towers.
+- **20 rounds of waves that are never the same twice.** Each round's wave
+  is generated for the match: sometimes a mixed bag, sometimes a themed one
+  (Rush, Swarm, Air Raid, Heavy Armour), and a Boss Round at rounds 10, 15
+  and 20. The same wave hits both lanes, each tougher than the last, and
+  from round 10 on they toughen much faster. After the final round comes
+  sudden death, where waves grow faster and tougher until one side breaks.
 - **Maps without end.** Six named maps in six looks (meadow, dunes, snow,
   lava, swamp, autumn), each also played mirrored, and half of all matches
   on a freshly generated track that is checked for fairness before you see
   it.
-- **13 rules**, one rolled per match and sometimes two at once: Rush Hour,
+- **16 rules**, one rolled per match and sometimes two at once: Rush Hour,
   Gold Rush, Glass Cannons, Fortified, Blitz, Iron Lives, Bounty Boom, Thick
-  Skin, War Economy, Quick March, Rapid Fire, Marathon, Mirror Match.
+  Skin, War Economy, Quick March, Rapid Fire, Marathon, Featherweight, Head
+  Start, Heavy Hitters, Mirror Match.
 - **Random events.** A few times a match something happens to both lanes
-  at once: Gold Rain, an Ambush wave, Payday, a Stampede, a Power Surge,
-  Overdrive, Fog or a Cold Snap.
+  at once: Gold Rain, an Ambush wave, a Second Wind, a Bounty Rush, Payday,
+  a Stampede, a Power Surge, Overdrive, Fog or a Cold Snap.
 - **12 named rivals, 8 play styles.** On top of the difficulty you pick
   (Easy, Medium, Hard) you draw a rival: a Rusher, Turtle, Balanced, Tycoon,
   Swarmer, Bruiser, Gambler or Trickster, with something to say about how
   the match is going. The AI plays the same game you do: it places towers
   by how much track they cover, saves up for what it wants, answers what you
-  send, and on Hard sizes its pushes to what your defense can absorb.
+  send, and on Hard sizes its pushes to what your defense can absorb and
+  puts the rest into its own.
 - **A live main menu.** The match on the menu is real: two AIs playing the
   same engine you are about to.
-- **Short matches.** About 4 minutes; 3 under Blitz, 5 under Marathon.
+- **Matches of about 7 minutes.** 2 to 3 under Blitz, 10 under Marathon.
 - **A stats tab.** Win rate, record per difficulty, lifetime totals, personal
   bests, your most picked towers and which rivals you have beaten, all kept
   on the device.
@@ -100,7 +106,7 @@ Each side starts with 130 gold and 100 lives and earns gold every second.
   drag it into place; lift to build. Towers cannot stand on the track or on
   each other. There is no limit on how many you build: a lane holds as
   many as fit beside the track.
-- **Tap a placed tower** to see its range and stats, upgrade it (twice),
+- **Tap a placed tower** to see its range and stats, upgrade it (three times),
   change which unit it shoots first, or sell it for 70% of what you spent.
 - **Send.** The two rows of unit buttons are this match's roster; the
   draft screen shows it before you pick towers. Sending a unit puts it on
@@ -114,7 +120,7 @@ Each side starts with 130 gold and 100 lives and earns gold every second.
 - **Pause**, or the system back button, stops the match. Leaving the app
   pauses it automatically. The button on the right of the top bar doubles
   the speed.
-- The first side to reach 0 lives loses. After the last round (round 12,
+- The first side to reach 0 lives loses. After the last round (round 20,
   unless a rule changes the match length) it is sudden death: a wave every
   10 seconds, each one much tougher and faster than the one before.
 
@@ -277,7 +283,7 @@ to the `AiPersonality` enum and a row to the `Style` table at the top of
 ```
 
 `BalanceSimulationTest` plays about 480 whole matches headless, AI against
-AI, each on its own random map, roster and draft, in under a minute. It
+AI, each on its own random map, roster and draft, in about three minutes. It
 fails if any match does not end, if a harder AI does not beat an easier one
 most of the time, or if a play style can never win. It also prints a table
 per matchup (wins, match length, how many matches ended before sudden death,

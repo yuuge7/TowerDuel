@@ -215,7 +215,7 @@ private fun Logo() {
     Column(modifier = Modifier.rotate(-4f).scale(scale), horizontalAlignment = Alignment.CenterHorizontally) {
         OutlinedText("TOWER", fontSize = 66.sp, color = Sky, letterSpacing = 2.sp)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.offset(y = (-14).dp)) {
-            TowerPortrait(GameData.TROOPS.first(), Modifier.size(54.dp), level = 2)
+            TowerPortrait(GameData.TROOPS.first(), Modifier.size(54.dp), level = 3)
             OutlinedText("DUEL", fontSize = 66.sp, color = Sun, letterSpacing = 2.sp, modifier = Modifier.padding(horizontal = 6.dp))
             UnitPortrait(GameData.unit("boss"), Modifier.size(54.dp))
         }
@@ -251,7 +251,7 @@ private fun HowToPlay(onClose: () -> Unit) {
                     TowerPortrait(GameData.TROOPS.first(), Modifier.size(46.dp))
                 }
                 Rule("UPGRADE", "Tap a tower to upgrade it, change who it shoots first, or sell it.") {
-                    TowerPortrait(GameData.TROOPS.first(), Modifier.size(46.dp), level = 2)
+                    TowerPortrait(GameData.TROOPS.first(), Modifier.size(46.dp), level = 3)
                 }
                 Rule("SEND", "Units you send walk the rival's lane. Most also raise your income for the rest of the match.") {
                     UnitPortrait(GameData.unit("grunt"), Modifier.size(42.dp))

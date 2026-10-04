@@ -65,6 +65,8 @@ private const val OVERDRIVE_RELOAD = 0.7f
 private const val FOG_RANGE = 0.8f
 private const val COLD_SNAP_SPEED = 0.5f
 private const val AMBUSH_WAVE_SCALE = 0.5f
+private const val SECOND_WIND_LIVES = 10
+private const val BOUNTY_RUSH_PAY = 3f
 
 class GameEngine(
     val map: MapDef,
@@ -161,7 +163,8 @@ class GameEngine(
 
     /** Milliseconds between [tower]'s shots right now. */
     fun reloadMs(tower: TowerInstance): Float =
-        tower.reloadMs * modifier.reloadMultiplier * (if (activeEvent() == MatchEventType.OVERDRIVE) OVERDRIVE_RELOAD else 1f)
+        tower.reloadMs * modifier.reloadMultiplier / (1f + tower.reloadBonus) *
+            (if (activeEvent() == MatchEventType.OVERDRIVE) OVERDRIVE_RELOAD else 1f)
 
     fun sellRefund(tower: TowerInstance): Int = (tower.invested * SELL_REFUND_FRACTION).toInt()
 
@@ -192,8 +195,12 @@ class GameEngine(
         return ((readyAt - elapsedMs) / type.cooldownMs).coerceIn(0f, 1f)
     }
 
-    /** True while [enemy] is faded out: it cannot be targeted or hurt. */
+    /** True while [enemy] is still tunnelling under the first stretch of the track. */
+    fun isBurrowed(enemy: EnemyUnit): Boolean = enemy.progress < enemy.type.burrowUntil
+
+    /** True while [enemy] is out of reach, faded out or underground: it cannot be targeted or hurt. */
     fun isPhased(enemy: EnemyUnit): Boolean {
+        if (isBurrowed(enemy)) return true
         val every = enemy.type.phaseEveryMs
         if (every <= 0L) return false
         // Offset by id, so a pack of Phantoms does not blink in step.
@@ -331,11 +338,15 @@ class GameEngine(
         WaveGenerator.generate(waveLevel(forRound), roster, Random(seed * 31L + forRound))
     }
 
+    private fun levelHpScale(level: Int): Float {
+        val late = (level - GameData.WAVE_LATE_FROM_LEVEL).coerceAtLeast(0)
+        return (1f + GameData.WAVE_HP_GROWTH_PER_LEVEL * (level - 1)) * GameData.WAVE_LATE_GROWTH.pow(late)
+    }
+
     private fun waveHpScaleFor(forRound: Int): Float {
-        val growth = GameData.WAVE_HP_GROWTH_PER_LEVEL
-        if (forRound <= totalRounds) return 1f + growth * (waveLevel(forRound) - 1)
+        if (forRound <= totalRounds) return levelHpScale(waveLevel(forRound))
         // Sudden death: each wave much tougher than the one before, so the match cannot drag on.
-        return (1f + growth * (GameData.WAVE_LEVELS - 1)) * GameData.OVERTIME_HP_GROWTH.pow(forRound - totalRounds)
+        return levelHpScale(GameData.WAVE_LEVELS) * GameData.OVERTIME_HP_GROWTH.pow(forRound - totalRounds)
     }
 
     private fun waveSpeedScaleFor(forRound: Int): Float =
@@ -385,6 +396,11 @@ class GameEngine(
                 val gold = 50f + 10f * round
                 earn(playerField, gold)
                 earn(aiField, gold)
+            }
+            MatchEventType.SECOND_WIND -> {
+                for (field in arrayOf(playerField, aiField)) {
+                    field.lives = (field.lives + SECOND_WIND_LIVES).coerceAtMost(maxOf(startingLives, field.lives))
+                }
             }
             MatchEventType.AMBUSH -> {
                 val level = waveLevel(round.coerceAtLeast(1))
@@ -437,6 +453,18 @@ class GameEngine(
                     tower.payoutBank -= payout
                     tower.lastFiredAtMs = elapsedMs
                     field.fx.add(FxEvent(FxKind.GOLD_TEXT, tower.x, tower.y - 3f, 900f, value = payout))
+                    cue(SoundCue.COIN, field)
+                }
+            }
+
+            // Shrines give back lives one at a time, never past what the match started with.
+            if (tower.livesPerMinute > 0f) {
+                tower.lifeBank = (tower.lifeBank + tower.livesPerMinute / 60f * dtSeconds).coerceAtMost(1f)
+                if (tower.lifeBank >= 1f && field.lives < startingLives) {
+                    tower.lifeBank = 0f
+                    field.lives++
+                    tower.lastFiredAtMs = elapsedMs
+                    field.fx.add(FxEvent(FxKind.LIFE_GAIN, tower.x, tower.y - 3f, 1000f, value = 1))
                     cue(SoundCue.COIN, field)
                 }
             }
@@ -495,7 +523,8 @@ class GameEngine(
         val damage = shotDamage(tower)
         when (tower.type.shot) {
             ShotKind.NONE -> Unit
-            ShotKind.FROST_PULSE, ShotKind.POISON_PULSE, ShotKind.GUST_PULSE -> pulse(field, tower, range, damage)
+            ShotKind.FROST_PULSE, ShotKind.POISON_PULSE, ShotKind.GUST_PULSE, ShotKind.QUAKE_PULSE ->
+                pulse(field, tower, range, damage)
             ShotKind.RAIL -> {
                 field.fx.add(FxEvent(FxKind.TRACER, muzzleX(tower), muzzleY(tower), 180f, x2 = primary.x, y2 = primary.y, tower = tower.type))
                 hit(field, tower, primary, damage)
@@ -585,11 +614,12 @@ class GameEngine(
         field.projectiles.add(p)
     }
 
-    /** One burst that reaches everything in range: cold, poison or wind. The effect itself is applied by [hit]. */
+    /** One burst that reaches everything in range: cold, poison, wind or a quake. The effect itself is applied by [hit]. */
     private fun pulse(field: Battlefield, tower: TowerInstance, range: Float, damage: Float) {
         val kind = when (tower.type.shot) {
             ShotKind.FROST_PULSE -> FxKind.FROST_RING
             ShotKind.GUST_PULSE -> FxKind.GUST_RING
+            ShotKind.QUAKE_PULSE -> FxKind.QUAKE_RING
             else -> FxKind.POISON_CLOUD
         }
         field.fx.add(FxEvent(kind, tower.x, tower.y, 520f, size = range))
@@ -602,6 +632,7 @@ class GameEngine(
             when (tower.type.shot) {
                 ShotKind.FROST_PULSE -> SoundCue.FREEZE
                 ShotKind.GUST_PULSE -> SoundCue.SEND
+                ShotKind.QUAKE_PULSE -> SoundCue.BOOM
                 else -> SoundCue.SHOOT
             },
             field
@@ -644,12 +675,16 @@ class GameEngine(
 
     private fun refreshAuras(field: Battlefield) {
         for (tower in field.towers) {
-            var bonus = 0f
+            var damage = 0f
+            var reload = 0f
             for (other in field.towers) {
-                if (other === tower || other.auraPct <= 0f) continue
-                if (dist(other.x, other.y, tower.x, tower.y) <= other.auraRange) bonus += other.auraPct / 100f
+                if (other === tower || (other.auraPct <= 0f && other.auraReloadPct <= 0f)) continue
+                if (dist(other.x, other.y, tower.x, tower.y) > other.auraRange) continue
+                damage += other.auraPct / 100f
+                reload += other.auraReloadPct / 100f
             }
-            tower.auraBonus = bonus
+            tower.auraBonus = damage
+            tower.reloadBonus = reload
         }
     }
 
@@ -758,6 +793,7 @@ class GameEngine(
             dmg * (1f - unit.damageResistancePct / 100f)
         }
         if (elapsedMs < target.vulnerableUntilMs) dmg *= 1f + target.vulnerability
+        if (elapsedMs < target.wardUntilMs) dmg *= 1f - target.ward
         if (unit.armor > 0f) dmg = maxOf(dmg - unit.armor, dmg * (1f - ARMOR_MAX_REDUCTION))
         target.hp -= dmg.coerceAtLeast(0f)
         target.lastHitAtMs = elapsedMs
@@ -802,7 +838,8 @@ class GameEngine(
         enemy.alive = false
         if (by != null) by.kills++
         field.stats.kills++
-        val bounty = (enemy.type.bountyGold * modifier.bountyMultiplier * (1f + (by?.bountyBonus ?: 0f))).roundToInt()
+        val rush = if (activeEvent() == MatchEventType.BOUNTY_RUSH) BOUNTY_RUSH_PAY else 1f
+        val bounty = (enemy.type.bountyGold * modifier.bountyMultiplier * rush * (1f + (by?.bountyBonus ?: 0f))).roundToInt()
         earn(field, bounty.toFloat())
         field.fx.add(FxEvent(FxKind.POP, enemy.x, enemy.y, 420f, size = enemy.type.radius, unit = enemy.type, seed = rng.nextInt()))
         if (bounty > 0) {
@@ -849,12 +886,14 @@ class GameEngine(
             else -> 1f
         }
         val haste = if (elapsedMs < enemy.hasteUntilMs) 1f + enemy.haste else 1f
+        // A Berserker speeds up in step with the health it has lost.
+        val rage = 1f + enemy.type.enrageSpeedPct / 100f * (1f - enemy.hp / enemy.maxHp).coerceIn(0f, 1f)
         val weather = when (activeEvent()) {
             MatchEventType.STAMPEDE -> STAMPEDE_SPEED
             MatchEventType.COLD_SNAP -> COLD_SNAP_SPEED
             else -> 1f
         }
-        return enemy.type.speed * enemy.speedScale * modifier.speedMultiplier * status * haste * weather
+        return enemy.type.speed * enemy.speedScale * modifier.speedMultiplier * status * haste * rage * weather
     }
 
     private fun enemyPass(field: Battlefield, dtSeconds: Float) {
@@ -882,8 +921,9 @@ class GameEngine(
             if (!source.alive) continue
             val heals = source.type.healPerSecond > 0f
             val hastens = source.type.hasteAuraPct > 0f
-            if (!heals && !hastens) continue
-            val radius = if (heals) source.type.healRadius else source.type.hasteRadius
+            val wards = source.type.wardAuraPct > 0f
+            if (!heals && !hastens && !wards) continue
+            val radius = if (heals) source.type.healRadius else if (hastens) source.type.hasteRadius else source.type.wardRadius
             for (j in enemies.indices) {
                 val target = enemies[j]
                 if (!target.alive || abs(target.dist - source.dist) > radius) continue
@@ -892,9 +932,15 @@ class GameEngine(
                     target.haste = source.type.hasteAuraPct / 100f
                     target.hasteUntilMs = elapsedMs + HASTE_LINGER_MS
                 }
+                // A Warder shields the others, not itself: popping it first is the answer.
+                if (wards && target !== source) {
+                    target.ward = source.type.wardAuraPct / 100f
+                    target.wardUntilMs = elapsedMs + HASTE_LINGER_MS
+                }
             }
-            if (auraFx && source.x >= MIN_TARGET_X) {
-                field.fx.add(FxEvent(if (heals) FxKind.HEAL else FxKind.HASTE, source.x, source.y, 600f, size = radius * 0.55f))
+            if (auraFx && source.x >= MIN_TARGET_X && !isBurrowed(source)) {
+                val kind = if (heals) FxKind.HEAL else if (hastens) FxKind.HASTE else FxKind.WARD
+                field.fx.add(FxEvent(kind, source.x, source.y, 600f, size = radius * 0.55f))
             }
         }
 

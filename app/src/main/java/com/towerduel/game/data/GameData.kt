@@ -8,7 +8,7 @@ object GameData {
     const val BASE_INCOME_PER_SEC = 9f
     const val STARTING_GOLD = 130
     const val STARTING_LIVES = 100
-    const val MATCH_DURATION_SEC = 240
+    const val MATCH_DURATION_SEC = 400
     const val MIN_TOWER_SPACING = 7.5f
     const val MIN_DRAFT_DPS = 10f
 
@@ -30,10 +30,17 @@ object GameData {
      * Waves are generated for a level from 1 to this. A match of any length climbs the whole
      * ladder: a short one skips levels, a long one repeats them.
      */
-    const val WAVE_LEVELS = 12
+    const val WAVE_LEVELS = 20
 
     /** Wave units get tougher every level; past the last round the growth is steep on purpose. */
-    const val WAVE_HP_GROWTH_PER_LEVEL = 0.11f
+    const val WAVE_HP_GROWTH_PER_LEVEL = 0.09f
+
+    /**
+     * From [WAVE_LATE_FROM_LEVEL] on, units get this much tougher again with every level. By then
+     * income has snowballed, and without it the second half of a match would be a walk for both sides.
+     */
+    const val WAVE_LATE_GROWTH = 1.13f
+    const val WAVE_LATE_FROM_LEVEL = 10
     const val OVERTIME_HP_GROWTH = 1.45f
 
     /** Sudden-death waves also walk faster each round, so even a Boss arrives before the match is called. */
@@ -64,7 +71,8 @@ object GameData {
             targeting = TargetPriority.FIRST,
             upgrades = listOf(
                 UpgradeTier("Sharp Darts", "+50% damage, longer reach", 60, damageMult = 1.5f, rangeMult = 1.1f),
-                UpgradeTier("Twin Barrels", "Fires at two targets at once", 115, extraShots = 1, reloadMult = 0.85f)
+                UpgradeTier("Twin Barrels", "Fires at two targets at once", 115, extraShots = 1, reloadMult = 0.85f),
+                UpgradeTier("Triple Threat", "A third barrel and harder darts", 190, damageMult = 1.4f, extraShots = 1)
             ),
             description = "Cheap, reliable darts at whoever is furthest along."
         ),
@@ -75,7 +83,8 @@ object GameData {
             targeting = TargetPriority.STRONGEST,
             upgrades = listOf(
                 UpgradeTier("Marksman Scope", "+60% damage", 95, damageMult = 1.6f),
-                UpgradeTier("Railgun", "Huge damage, quicker reload", 170, damageMult = 1.8f, reloadMult = 0.8f)
+                UpgradeTier("Railgun", "Huge damage, quicker reload", 170, damageMult = 1.8f, reloadMult = 0.8f),
+                UpgradeTier("One Shot", "Double damage", 280, damageMult = 2f)
             ),
             description = "Covers most of the lane and picks off the toughest target."
         ),
@@ -86,7 +95,8 @@ object GameData {
             targeting = TargetPriority.CLOSEST, slowFactor = 0.35f, slowDurationMs = 1300,
             upgrades = listOf(
                 UpgradeTier("Deep Chill", "Stronger slow, wider pulse", 70, effectMult = 1.3f, rangeMult = 1.15f),
-                UpgradeTier("Blizzard", "Pulses faster and bites harder", 125, damageMult = 4f, effectMult = 1.25f, reloadMult = 0.8f)
+                UpgradeTier("Blizzard", "Pulses faster and bites harder", 125, damageMult = 4f, effectMult = 1.25f, reloadMult = 0.8f),
+                UpgradeTier("Absolute Zero", "Nearly stops units, far wider pulse", 200, damageMult = 2f, effectMult = 1.3f, rangeMult = 1.2f)
             ),
             description = "Pulses cold that slows everything in range. Weak damage alone."
         ),
@@ -97,7 +107,8 @@ object GameData {
             targeting = TargetPriority.FIRST, splashRadius = 9f,
             upgrades = listOf(
                 UpgradeTier("Big Bombs", "+50% damage, bigger blast", 90, damageMult = 1.5f, splashMult = 1.25f),
-                UpgradeTier("Cluster Bombs", "Reloads much faster", 155, damageMult = 1.5f, reloadMult = 0.72f)
+                UpgradeTier("Cluster Bombs", "Reloads much faster", 155, damageMult = 1.5f, reloadMult = 0.72f),
+                UpgradeTier("Carpet Bombs", "Far more damage, bigger blast", 250, damageMult = 1.7f, splashMult = 1.3f)
             ),
             description = "Explodes on impact. Great against packed groups."
         ),
@@ -108,7 +119,8 @@ object GameData {
             targeting = TargetPriority.CLOSEST,
             upgrades = listOf(
                 UpgradeTier("Hot Barrels", "+50% damage", 65, damageMult = 1.5f),
-                UpgradeTier("Minigun", "Spins up to a wall of lead", 125, damageMult = 1.3f, reloadMult = 0.62f, rangeMult = 1.1f)
+                UpgradeTier("Minigun", "Spins up to a wall of lead", 125, damageMult = 1.3f, reloadMult = 0.62f, rangeMult = 1.1f),
+                UpgradeTier("Bullet Storm", "+80% damage, longer reach", 200, damageMult = 1.8f, rangeMult = 1.15f)
             ),
             description = "Very fast, short range. Shreds whatever walks past."
         ),
@@ -119,7 +131,8 @@ object GameData {
             targeting = TargetPriority.FIRST, chainTargets = 2,
             upgrades = listOf(
                 UpgradeTier("Arc Coil", "One more jump, harder hits", 95, damageMult = 1.35f, extraChains = 1),
-                UpgradeTier("Storm Core", "Two more jumps, faster arcs", 165, damageMult = 1.45f, extraChains = 2, reloadMult = 0.85f)
+                UpgradeTier("Storm Core", "Two more jumps, faster arcs", 165, damageMult = 1.45f, extraChains = 2, reloadMult = 0.85f),
+                UpgradeTier("Thunderhead", "Three more jumps, much harder hits", 270, damageMult = 1.6f, extraChains = 3)
             ),
             description = "Lightning jumps from the first target to its neighbours."
         ),
@@ -131,7 +144,8 @@ object GameData {
             dotDamagePerSecond = 6f, dotDurationMs = 3000,
             upgrades = listOf(
                 UpgradeTier("Venom", "+60% poison", 75, effectMult = 1.6f),
-                UpgradeTier("Plague", "Stronger poison, wider cloud", 135, effectMult = 1.7f, rangeMult = 1.2f)
+                UpgradeTier("Plague", "Stronger poison, wider cloud", 135, effectMult = 1.7f, rangeMult = 1.2f),
+                UpgradeTier("Black Death", "Double poison", 220, effectMult = 2f)
             ),
             description = "Poisons everything nearby. Weak up front, strong over time."
         ),
@@ -141,7 +155,8 @@ object GameData {
             isAttacker = false, incomeBonusPerSecond = 2f,
             upgrades = listOf(
                 UpgradeTier("Deep Shaft", "+60% income", 90, effectMult = 1.6f),
-                UpgradeTier("Motherlode", "+70% income again", 150, effectMult = 1.7f)
+                UpgradeTier("Motherlode", "+70% income again", 150, effectMult = 1.7f),
+                UpgradeTier("Royal Mint", "Income doubled", 260, effectMult = 2f)
             ),
             description = "No attack. Pays out gold for the rest of the match."
         ),
@@ -152,7 +167,8 @@ object GameData {
             targeting = TargetPriority.FIRST, stunChance = 0.35f, stunDurationMs = 900,
             upgrades = listOf(
                 UpgradeTier("Overcharge", "Stuns more often, hits harder", 85, damageMult = 1.5f, effectMult = 1.4f),
-                UpgradeTier("Paralyzer", "Nearly every shot stuns", 145, damageMult = 1.8f, effectMult = 1.4f, reloadMult = 0.85f)
+                UpgradeTier("Paralyzer", "Nearly every shot stuns", 145, damageMult = 1.8f, effectMult = 1.4f, reloadMult = 0.85f),
+                UpgradeTier("Lockdown", "Double damage, reloads faster", 240, damageMult = 2f, reloadMult = 0.75f)
             ),
             description = "Shots have a chance to freeze the target in place."
         ),
@@ -163,7 +179,8 @@ object GameData {
             targeting = TargetPriority.FIRST, bonusDamageVsFlyerPct = 100f,
             upgrades = listOf(
                 UpgradeTier("Flak Rounds", "+50% damage, longer reach", 70, damageMult = 1.5f, rangeMult = 1.1f),
-                UpgradeTier("Skyfall", "Fires at two targets at once", 130, damageMult = 1.3f, extraShots = 1)
+                UpgradeTier("Skyfall", "Fires at two targets at once", 130, damageMult = 1.3f, extraShots = 1),
+                UpgradeTier("Iron Dome", "A third target, +50% damage", 210, damageMult = 1.5f, extraShots = 1)
             ),
             description = "Goes for Flyers first and hits them for double damage."
         ),
@@ -173,7 +190,8 @@ object GameData {
             isAttacker = false, auraDamageBonusPct = 20f, auraRange = 16f,
             upgrades = listOf(
                 UpgradeTier("Amplifier", "Bigger boost, wider signal", 80, effectMult = 1.5f, rangeMult = 1.2f),
-                UpgradeTier("Command Link", "Bigger boost again", 140, effectMult = 1.5f)
+                UpgradeTier("Command Link", "Bigger boost again", 140, effectMult = 1.5f),
+                UpgradeTier("Supremacy", "Boost and signal both grow again", 230, effectMult = 1.4f, rangeMult = 1.2f)
             ),
             description = "No attack. Every tower in its signal deals more damage."
         ),
@@ -184,7 +202,8 @@ object GameData {
             targeting = TargetPriority.FIRST, splashRadius = 11f,
             upgrades = listOf(
                 UpgradeTier("Heavy Shells", "+60% damage", 130, damageMult = 1.6f),
-                UpgradeTier("Barrage", "Reloads far faster, bigger blast", 210, reloadMult = 0.6f, splashMult = 1.2f)
+                UpgradeTier("Barrage", "Reloads far faster, bigger blast", 210, reloadMult = 0.6f, splashMult = 1.2f),
+                UpgradeTier("Doomsday Shells", "Double damage, bigger blast", 340, damageMult = 2f, splashMult = 1.2f)
             ),
             description = "Lobs shells that flatten a wide area. Slow to reload."
         ),
@@ -196,7 +215,8 @@ object GameData {
             dotDamagePerSecond = 5f, dotDurationMs = 2000,
             upgrades = listOf(
                 UpgradeTier("Hotter Fuel", "+50% damage, fiercer burn", 80, damageMult = 1.5f, effectMult = 1.5f),
-                UpgradeTier("Inferno", "Longer, wider flame", 140, damageMult = 1.4f, rangeMult = 1.25f, splashMult = 1.4f)
+                UpgradeTier("Inferno", "Longer, wider flame", 140, damageMult = 1.4f, rangeMult = 1.25f, splashMult = 1.4f),
+                UpgradeTier("Dragon Breath", "Much hotter, burns far worse", 230, damageMult = 1.6f, effectMult = 1.8f)
             ),
             description = "A short jet of fire that sets a whole clump of units burning."
         ),
@@ -207,7 +227,8 @@ object GameData {
             targeting = TargetPriority.STRONGEST, rampPerHit = 0.12f, rampMax = 2.5f,
             upgrades = listOf(
                 UpgradeTier("Focus Lens", "+50% damage", 100, damageMult = 1.5f),
-                UpgradeTier("Death Ray", "Ramps much further, pulses faster", 175, effectMult = 1.6f, reloadMult = 0.85f)
+                UpgradeTier("Death Ray", "Ramps much further, pulses faster", 175, effectMult = 1.6f, reloadMult = 0.85f),
+                UpgradeTier("Supernova", "Double damage", 290, damageMult = 2f)
             ),
             description = "A beam that grows stronger the longer it stays on one target."
         ),
@@ -218,7 +239,8 @@ object GameData {
             targeting = TargetPriority.FIRST, pierce = 3,
             upgrades = listOf(
                 UpgradeTier("Serrated Edge", "+50% damage", 90, damageMult = 1.5f),
-                UpgradeTier("Whirlwind", "Cuts through three more, throws faster", 150, extraChains = 3, reloadMult = 0.8f)
+                UpgradeTier("Whirlwind", "Cuts through three more, throws faster", 150, extraChains = 3, reloadMult = 0.8f),
+                UpgradeTier("Razor Storm", "Double damage, cuts three more", 250, damageMult = 2f, extraChains = 3)
             ),
             description = "Throws a blade that cuts through every unit in a line."
         ),
@@ -229,7 +251,8 @@ object GameData {
             targeting = TargetPriority.FIRST, critChance = 0.25f, critMultiplier = 3f,
             upgrades = listOf(
                 UpgradeTier("Heavy Bolts", "+50% damage", 90, damageMult = 1.5f),
-                UpgradeTier("Deadeye", "Crits far more often, longer reach", 160, effectMult = 1.8f, rangeMult = 1.15f)
+                UpgradeTier("Deadeye", "Crits far more often, longer reach", 160, effectMult = 1.8f, rangeMult = 1.15f),
+                UpgradeTier("Arbalest", "Double damage, faster reload", 260, damageMult = 2f, reloadMult = 0.8f)
             ),
             description = "Long, hard-hitting bolts. One in four hits for triple damage."
         ),
@@ -240,7 +263,8 @@ object GameData {
             targeting = TargetPriority.STRONGEST, vulnerabilityPct = 25f, vulnerabilityMs = 3000,
             upgrades = listOf(
                 UpgradeTier("Deeper Curse", "Cursed units take more damage", 80, effectMult = 1.4f),
-                UpgradeTier("Doom", "Stronger curse, two targets at once", 140, effectMult = 1.3f, extraShots = 1)
+                UpgradeTier("Doom", "Stronger curse, two targets at once", 140, effectMult = 1.3f, extraShots = 1),
+                UpgradeTier("Damnation", "A far stronger curse, a third target", 230, effectMult = 1.4f, extraShots = 1)
             ),
             description = "Curses a unit so every other tower hurts it more."
         ),
@@ -251,7 +275,8 @@ object GameData {
             targeting = TargetPriority.CLOSEST, knockback = 5f,
             upgrades = listOf(
                 UpgradeTier("Gale", "Stronger push, wider gust", 85, effectMult = 1.4f, rangeMult = 1.15f),
-                UpgradeTier("Hurricane", "Gusts more often and stings", 140, damageMult = 4f, reloadMult = 0.75f)
+                UpgradeTier("Hurricane", "Gusts more often and stings", 140, damageMult = 4f, reloadMult = 0.75f),
+                UpgradeTier("Tornado", "Throws units much further, wider gust", 230, effectMult = 1.6f, rangeMult = 1.2f)
             ),
             description = "Blows every unit in range back down the track. Heavy units barely budge."
         ),
@@ -262,7 +287,8 @@ object GameData {
             targeting = TargetPriority.FIRST, bountyBonusPct = 60f,
             upgrades = listOf(
                 UpgradeTier("Marked Bills", "+50% damage, bigger bounties", 75, damageMult = 1.5f, effectMult = 1.4f),
-                UpgradeTier("Jackpot", "Bigger bounties again, fires faster", 130, effectMult = 1.5f, reloadMult = 0.8f)
+                UpgradeTier("Jackpot", "Bigger bounties again, fires faster", 130, effectMult = 1.5f, reloadMult = 0.8f),
+                UpgradeTier("Kingpin", "Double damage, richer bounties", 210, damageMult = 2f, effectMult = 1.3f)
             ),
             description = "A modest gun whose kills pay 60% more gold."
         ),
@@ -273,9 +299,56 @@ object GameData {
             targeting = TargetPriority.FIRST, executeBelowPct = 12f,
             upgrades = listOf(
                 UpgradeTier("Keen Edge", "+50% damage", 110, damageMult = 1.5f),
-                UpgradeTier("Grim Harvest", "Finishes units off much sooner, longer reach", 170, effectMult = 1.8f, rangeMult = 1.2f)
+                UpgradeTier("Grim Harvest", "Finishes units off much sooner, longer reach", 170, effectMult = 1.8f, rangeMult = 1.2f),
+                UpgradeTier("Death's Door", "+80% damage, faster swings", 280, damageMult = 1.8f, reloadMult = 0.8f)
             ),
             description = "Hits hard up close and finishes off anything nearly dead."
+        ),
+        TroopType(
+            id = "comet", name = "Comet Caller", color = Color(0xFF5B7BE8),
+            cost = 130, role = "Whole lane", shot = ShotKind.MORTAR,
+            damage = 60f, range = 200f, fireRateMs = 4200,
+            targeting = TargetPriority.STRONGEST, splashRadius = 9f,
+            upgrades = listOf(
+                UpgradeTier("Bigger Rocks", "+60% damage", 140, damageMult = 1.6f),
+                UpgradeTier("Meteor Shower", "Calls them down far more often", 230, reloadMult = 0.65f),
+                UpgradeTier("Extinction", "+80% damage, bigger blast", 360, damageMult = 1.8f, splashMult = 1.3f)
+            ),
+            description = "Drops a rock on the toughest unit anywhere on the lane. Slow, but nothing is out of reach."
+        ),
+        TroopType(
+            id = "thumper", name = "Thumper", color = Color(0xFFB8A58C),
+            cost = 90, role = "Stuns a crowd", shot = ShotKind.QUAKE_PULSE,
+            damage = 6f, range = 13f, fireRateMs = 3800,
+            targeting = TargetPriority.CLOSEST, stunChance = 0.9f, stunDurationMs = 700,
+            upgrades = listOf(
+                UpgradeTier("Heavy Hammer", "Hits harder, wider quake", 100, damageMult = 3f, rangeMult = 1.15f),
+                UpgradeTier("Aftershock", "Slams more often", 160, reloadMult = 0.75f),
+                UpgradeTier("Earthshaker", "More often again, harder and wider", 250, damageMult = 2f, reloadMult = 0.75f, rangeMult = 1.15f)
+            ),
+            description = "Slams the ground and stops everything nearby in its tracks for a moment."
+        ),
+        TroopType(
+            id = "overclock", name = "Overclocker", color = Color(0xFFFFA63D),
+            cost = 85, role = "Support", shot = ShotKind.NONE,
+            isAttacker = false, auraReloadBonusPct = 15f, auraRange = 15f,
+            upgrades = listOf(
+                UpgradeTier("Tuned Gears", "Bigger boost, wider reach", 90, effectMult = 1.4f, rangeMult = 1.15f),
+                UpgradeTier("Redline", "Bigger boost again", 150, effectMult = 1.4f),
+                UpgradeTier("Perpetual Motion", "Bigger boost, wider reach again", 240, effectMult = 1.35f, rangeMult = 1.2f)
+            ),
+            description = "No attack. Every tower near it fires faster."
+        ),
+        TroopType(
+            id = "shrine", name = "Shrine", color = Color(0xFFFFE9A8),
+            cost = 110, role = "Restores lives", shot = ShotKind.NONE,
+            isAttacker = false, livesPerMinute = 5f,
+            upgrades = listOf(
+                UpgradeTier("Bigger Altar", "+60% lives restored", 110, effectMult = 1.6f),
+                UpgradeTier("Pilgrimage", "+60% again", 180, effectMult = 1.6f),
+                UpgradeTier("Miracle", "+60% once more", 280, effectMult = 1.6f)
+            ),
+            description = "No attack. Slowly gives lost lives back, up to what you started with."
         )
     )
 
@@ -362,6 +435,41 @@ object GameData {
             spawnOnDeathId = "swarm", spawnOnDeathCount = 6,
             incomeBonus = 0.60f, unlockRound = 6, cooldownMs = 1300,
             description = "Pops into six Swarm units."
+        ),
+        EnemySendType(
+            id = "burrower", name = "Burrower", color = Color(0xFFB07A4A),
+            cost = 75, maxHp = 85f, speed = 9f, livesDamage = 3, bountyGold = 9, radius = 2.2f,
+            burrowUntil = 0.35f,
+            incomeBonus = 0.50f, unlockRound = 6, cooldownMs = 1000,
+            description = "Tunnels under the first third of the track, where nothing can touch it."
+        ),
+        EnemySendType(
+            id = "warder", name = "Warder", color = Color(0xFF6FA8FF),
+            cost = 85, maxHp = 80f, speed = 8f, livesDamage = 2, bountyGold = 10, radius = 2.2f,
+            wardAuraPct = 30f, wardRadius = 12f,
+            incomeBonus = 0.50f, unlockRound = 8, cooldownMs = 1200,
+            description = "Everyone near it takes 30% less damage. Pop it first."
+        ),
+        EnemySendType(
+            id = "berserker", name = "Berserker", color = Color(0xFFD94B6A),
+            cost = 80, maxHp = 130f, speed = 7f, livesDamage = 3, bountyGold = 10, radius = 2.5f,
+            enrageSpeedPct = 120f,
+            incomeBonus = 0.55f, unlockRound = 9, cooldownMs = 1000,
+            description = "The more it is hurt, the faster it charges."
+        ),
+        EnemySendType(
+            id = "wyvern", name = "Wyvern", color = Color(0xFF3FBF9A),
+            cost = 190, maxHp = 600f, speed = 7.5f, livesDamage = 10, bountyGold = 28, radius = 3.4f,
+            flying = true, damageResistancePct = 40f,
+            incomeBonus = 0.30f, unlockRound = 11, cooldownMs = 4000,
+            description = "A flying heavyweight. Without Anti-air it takes a lot of killing."
+        ),
+        EnemySendType(
+            id = "colossus", name = "Colossus", color = Color(0xFF9AA3B5),
+            cost = 480, maxHp = 2400f, speed = 3.6f, livesDamage = 40, bountyGold = 90, radius = 5f,
+            armor = 6f,
+            incomeBonus = 0f, unlockRound = 13, cooldownMs = 9000,
+            description = "An armoured giant for the late rounds. Costs 40 lives if it arrives."
         ),
         EnemySendType(
             id = "boss", name = "Boss", color = Color(0xFFE8504A),
@@ -508,7 +616,21 @@ object GameData {
         ),
         MatchModifier(
             id = "marathon", name = "Marathon",
-            description = "A 6-minute match before sudden death.", matchDurationOverrideSec = 360
+            description = "A 10-minute match before sudden death.", matchDurationOverrideSec = 600
+        ),
+        MatchModifier(
+            id = "featherweight", name = "Featherweight",
+            description = "Units are 25% faster but have 25% less health.",
+            speedMultiplier = 1.25f, unitHpMultiplier = 0.75f
+        ),
+        MatchModifier(
+            id = "head_start", name = "Head Start",
+            description = "Both sides start with 200 extra gold.", startingGoldBonus = 200
+        ),
+        MatchModifier(
+            id = "heavy_hitters", name = "Heavy Hitters",
+            description = "Towers hit 30% harder but fire 15% slower.",
+            damageMultiplier = 1.3f, reloadMultiplier = 1.15f
         ),
         MatchModifier(
             id = "mirror", name = "Mirror Match",
