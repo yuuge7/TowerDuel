@@ -56,6 +56,8 @@ only bundled assets are two open-licensed fonts.
 - **Short matches.** About 5 minutes, or 3 under the Blitz modifier.
 - **A stats tab.** Win rate, record per difficulty, lifetime totals, personal
   bests and your most picked towers, all kept on the device.
+- **Stats backup.** Export your stats to a file and import them again, for
+  example on a new phone.
 
 Towers offered, map, modifier and AI style are rolled independently, so two
 matches rarely play the same way.
@@ -95,6 +97,19 @@ Each side starts with 130 gold and 100 lives and earns gold every second.
 - The first side to reach 0 lives loses. After round 12 (round 6 under
   Blitz) it is sudden death: a wave every 10 seconds, each one much tougher
   and faster than the one before.
+
+### Backing up your stats
+
+Open the **Stats** tab on the main menu and scroll to **Backup**.
+
+- **Export** opens Android's save dialog in the Download folder with the
+  file name already filled in (`towerduel-stats-<date>.json`). Tap **Save**,
+  or browse to another folder first.
+- **Import** lets you pick an exported file, shows what is in it, and asks
+  before it replaces the stats on the device.
+
+The file is plain JSON. The game needs no storage permission for either
+direction: it only ever touches the one file you pick.
 
 ## Building from source
 
@@ -173,6 +188,7 @@ app/src/main/java/com/towerduel/game/
     ├── GameViewModel.kt     Steps the engine once per display frame, exposes state to the UI
     ├── DemoMatch.kt         The AI-vs-AI match shown on the main menu
     ├── Stats.kt             Lifetime stats and how a finished match adds to them
+    ├── StatsFile.kt         The export file: stats to JSON and back
     ├── Profile.kt           Saves those stats and the settings (SharedPreferences)
     ├── Navigation.kt        Screen routing
     ├── audio/SoundFx.kt     Synthesizes every sound effect at startup
@@ -241,6 +257,8 @@ when changing numbers in `GameData.kt`.
 
 `LifetimeStatsTest` covers how a finished match is added to the stats tab's
 numbers: streaks, the per-difficulty record, totals and bests.
+`StatsFileTest` covers the export file: an export reads back unchanged, a
+file that is not an export is refused, and impossible numbers are repaired.
 
 ## Releases and versioning
 

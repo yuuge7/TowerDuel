@@ -49,6 +49,25 @@ class ProfileStore(context: Context) {
         prefs.edit().also { save(it, stats) }.putBoolean(KEY_NEW, false).apply()
     }
 
+    /** Swaps in stats read from an export file, in place of whatever was recorded on this device. */
+    fun replaceStats(imported: LifetimeStats) {
+        // Picks for towers this version does not have would have nothing to show.
+        val known = GameData.TROOPS.map { it.id }.toSet()
+        stats = imported.copy(towerPicks = imported.towerPicks.filterKeys { it in known })
+
+        val editor = prefs.edit()
+        // Clear the per-tower and per-difficulty counters first: the import only writes the ones
+        // it has, and the rest must not survive from the old record. (An editor applies its
+        // removals before its puts, so the values saved below are kept.)
+        for (tower in GameData.TROOPS) editor.remove(KEY_PICK + tower.id)
+        for (difficulty in Difficulty.entries) {
+            editor.remove(KEY_WINS + "_" + difficulty.name)
+            editor.remove(KEY_LOSSES + "_" + difficulty.name)
+        }
+        save(editor, stats)
+        editor.apply()
+    }
+
     private fun load(): LifetimeStats = LifetimeStats(
         wins = prefs.getInt(KEY_WINS, 0),
         losses = prefs.getInt(KEY_LOSSES, 0),

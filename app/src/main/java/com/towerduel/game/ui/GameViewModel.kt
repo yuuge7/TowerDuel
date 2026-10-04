@@ -1,12 +1,15 @@
 package com.towerduel.game.ui
 
 import android.app.Application
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.towerduel.game.data.AiPersonality
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.EnemySendType
@@ -22,10 +25,21 @@ import com.towerduel.game.engine.SendResult
 import com.towerduel.game.engine.SoundCue
 import com.towerduel.game.ui.audio.SoundFx
 import com.towerduel.game.ui.render.Ghost
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.time.Instant
 import kotlin.math.sqrt
 
 /** A short message shown over the battle; [id] makes a repeat of the same text count as new. */
 data class Notice(val text: String, val id: Int)
+
+/** How the last export or import went, shown under the backup buttons. */
+class BackupNotice(val text: String, val isError: Boolean)
+
+/** Stats read from a file, waiting for the player to confirm replacing their own with them. */
+class PendingImport(val stats: LifetimeStats, val fileName: String, val exportedAt: String?)
 
 /** The simulation advances in fixed steps, so a match plays the same at any frame rate. */
 private const val STEP_SECONDS = 1f / 60f
@@ -233,6 +247,98 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         sound.enabled = profile.soundOn
         playUi(SoundCue.CLICK)
     }
+
+    // ---- Stats backup ---------------------------------------------------------
+
+    var backupNotice by mutableStateOf<BackupNotice?>(null)
+        private set
+    var pendingImport by mutableStateOf<PendingImport?>(null)
+        private set
+
+    private val resolver get() = getApplication<Application>().contentResolver
+
+    /** Writes the stats to [uri], the file the player just created in the system's save dialog. */
+    fun exportStats(uri: Uri) {
+        val text = StatsFile.encode(profile.stats, Instant.now().toString())
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching {
+                    // "wt" empties a file the player chose to overwrite; not every provider knows it.
+                    val out = runCatching { resolver.openOutputStream(uri, "wt") }.getOrNull()
+                        ?: resolver.openOutputStream(uri)
+                        ?: error("no output stream")
+                    out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                    displayName(uri)
+                }
+            }
+            if (saved.isSuccess) {
+                backupNotice = BackupNotice("Saved ${saved.getOrNull() ?: "your stats"}", isError = false)
+                playUi(SoundCue.COIN)
+            } else {
+                backupNotice = BackupNotice("Could not save the file there. Try another folder.", isError = true)
+                playUi(SoundCue.DENIED)
+            }
+        }
+    }
+
+    /** Reads [uri], the file the player picked. A good file waits in [pendingImport] to be confirmed. */
+    fun openStatsFile(uri: Uri) {
+        viewModelScope.launch {
+            val read = withContext(Dispatchers.IO) {
+                runCatching {
+                    val input = resolver.openInputStream(uri) ?: error("no input stream")
+                    val bytes = input.use { stream ->
+                        val buffer = ByteArrayOutputStream()
+                        val chunk = ByteArray(8192)
+                        while (true) {
+                            val n = stream.read(chunk)
+                            if (n < 0) break
+                            buffer.write(chunk, 0, n)
+                            if (buffer.size() > StatsFile.MAX_BYTES) {
+                                throw StatsFileException("That file is too big to be a TowerDuel stats export.")
+                            }
+                        }
+                        buffer.toByteArray()
+                    }
+                    val export = StatsFile.decode(String(bytes, Charsets.UTF_8))
+                    PendingImport(export.stats, displayName(uri) ?: "the chosen file", export.exportedAt)
+                }
+            }
+            val pending = read.getOrNull()
+            if (pending != null) {
+                backupNotice = null
+                pendingImport = pending
+            } else {
+                // Our own refusals are already worded for the player; anything else is a read error.
+                val reason = (read.exceptionOrNull() as? StatsFileException)?.message ?: "Could not read that file."
+                backupNotice = BackupNotice(reason, isError = true)
+                playUi(SoundCue.DENIED)
+            }
+        }
+    }
+
+    fun confirmImport() {
+        val pending = pendingImport ?: return
+        profile.replaceStats(pending.stats)
+        pendingImport = null
+        backupNotice = BackupNotice("Imported ${pending.fileName}", isError = false)
+        playUi(SoundCue.UPGRADE)
+    }
+
+    fun cancelImport() {
+        pendingImport = null
+    }
+
+    fun reportNoFilePicker() {
+        backupNotice = BackupNotice("This device has no file picker to do that with.", isError = true)
+        playUi(SoundCue.DENIED)
+    }
+
+    private fun displayName(uri: Uri): String? = runCatching {
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }.getOrNull()
 
     // ---- Player interactions -------------------------------------------------
 

@@ -88,7 +88,7 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 16.dp)) {
             when (tab) {
                 MenuTab.BATTLE -> BattleTab(viewModel, onStart, onHelp = { showHelp = true }, Modifier.weight(1f))
-                MenuTab.STATS -> StatsTab(viewModel.profile.stats, onPlay = { tab = MenuTab.BATTLE }, Modifier.weight(1f))
+                MenuTab.STATS -> StatsTab(viewModel, onPlay = { tab = MenuTab.BATTLE }, Modifier.weight(1f))
             }
 
             Row(

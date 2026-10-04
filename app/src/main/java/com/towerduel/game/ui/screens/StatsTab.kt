@@ -1,5 +1,12 @@
 package com.towerduel.game.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +25,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,11 +38,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.GameData
 import com.towerduel.game.ui.DifficultyRecord
+import com.towerduel.game.ui.GameViewModel
 import com.towerduel.game.ui.LifetimeStats
+import com.towerduel.game.ui.PendingImport
+import com.towerduel.game.ui.StatsFile
 import com.towerduel.game.ui.components.ChunkyTextButton
+import com.towerduel.game.ui.components.GameIcon
+import com.towerduel.game.ui.components.GameIconKind
 import com.towerduel.game.ui.components.GamePanel
 import com.towerduel.game.ui.components.OutlinedText
 import com.towerduel.game.ui.components.TowerPortrait
@@ -44,9 +59,15 @@ import com.towerduel.game.ui.theme.Ink
 import com.towerduel.game.ui.theme.Leaf
 import com.towerduel.game.ui.theme.Lilac
 import com.towerduel.game.ui.theme.NightDeep
+import com.towerduel.game.ui.theme.PanelLight
 import com.towerduel.game.ui.theme.Sky
 import com.towerduel.game.ui.theme.Sun
+import com.towerduel.game.ui.theme.Tomato
 import com.towerduel.game.ui.theme.darken
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -54,9 +75,21 @@ private const val TOP_TOWERS = 5
 
 /** The player's lifetime numbers. [onPlay] is where the empty state sends a player with no matches yet. */
 @Composable
-fun StatsTab(stats: LifetimeStats, onPlay: () -> Unit, modifier: Modifier = Modifier) {
+fun StatsTab(viewModel: GameViewModel, onPlay: () -> Unit, modifier: Modifier = Modifier) {
+    val stats = viewModel.profile.stats
+    val scroll = rememberScrollState()
+
+    // The result of an export or import is written under the last panel: bring it into view.
+    val notice = viewModel.backupNotice
+    LaunchedEffect(notice) {
+        if (notice != null) {
+            withFrameNanos { } // let the new line be measured, so the end of the list is its real end
+            scroll.animateScrollTo(scroll.maxValue)
+        }
+    }
+
     Column(
-        modifier = modifier.verticalScroll(rememberScrollState()),
+        modifier = modifier.verticalScroll(scroll),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         OutlinedText("YOUR STATS", fontSize = 32.sp, color = Sun, modifier = Modifier.padding(top = 12.dp))
@@ -69,9 +102,141 @@ fun StatsTab(stats: LifetimeStats, onPlay: () -> Unit, modifier: Modifier = Modi
             BestsPanel(stats)
             if (stats.towerPicks.isNotEmpty()) TowerPicksPanel(stats)
         }
+        // Always there, matches or not: a new phone with no matches is exactly where import is needed.
+        BackupPanel(viewModel, canExport = stats.matches > 0)
         Spacer(Modifier.height(2.dp))
     }
+
+    val pending = viewModel.pendingImport
+    if (pending != null) {
+        ImportDialog(pending, matchesReplaced = stats.matches, onConfirm = viewModel::confirmImport, onCancel = viewModel::cancelImport)
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Backup: export to a file, import from one
+// ---------------------------------------------------------------------------
+
+/** Both pickers open in the device's Download folder; the player can browse anywhere from there. */
+private val DOWNLOADS: Uri =
+    DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Download")
+
+/** The system "save as" dialog, started in Downloads with the file name filled in. */
+private class CreateStatsFile : ActivityResultContracts.CreateDocument(StatsFile.MIME_TYPE) {
+    override fun createIntent(context: Context, input: String): Intent =
+        super.createIntent(context, input).putExtra(DocumentsContract.EXTRA_INITIAL_URI, DOWNLOADS)
+}
+
+/** The system file chooser, started in Downloads. */
+private class OpenStatsFile : ActivityResultContracts.OpenDocument() {
+    override fun createIntent(context: Context, input: Array<String>): Intent =
+        super.createIntent(context, input).putExtra(DocumentsContract.EXTRA_INITIAL_URI, DOWNLOADS)
+}
+
+// A .json file that has been through a chat app or a PC does not always come back labelled as JSON.
+private val IMPORTABLE_TYPES = arrayOf(StatsFile.MIME_TYPE, "text/plain", "application/octet-stream")
+
+@Composable
+private fun BackupPanel(viewModel: GameViewModel, canExport: Boolean) {
+    val saver = rememberLauncherForActivityResult(CreateStatsFile()) { uri -> if (uri != null) viewModel.exportStats(uri) }
+    val opener = rememberLauncherForActivityResult(OpenStatsFile()) { uri -> if (uri != null) viewModel.openStatsFile(uri) }
+    val notice = viewModel.backupNotice
+
+    Section("Backup") {
+        Text(
+            "Export saves your stats as a file. It goes to Downloads unless you pick another folder. " +
+                "Import loads a saved file in place of the stats on this device.",
+            color = Lilac, style = MaterialTheme.typography.bodyMedium
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChunkyTextButton(
+                "EXPORT",
+                onClick = {
+                    try {
+                        saver.launch(StatsFile.fileName(LocalDate.now().toString()))
+                    } catch (e: ActivityNotFoundException) {
+                        viewModel.reportNoFilePicker()
+                    }
+                },
+                modifier = Modifier.weight(1f).height(50.dp), color = Sky, enabled = canExport, fontSize = 17.sp
+            )
+            ChunkyTextButton(
+                "IMPORT",
+                onClick = {
+                    try {
+                        opener.launch(IMPORTABLE_TYPES)
+                    } catch (e: ActivityNotFoundException) {
+                        viewModel.reportNoFilePicker()
+                    }
+                },
+                modifier = Modifier.weight(1f).height(50.dp), color = PanelLight, fontSize = 17.sp
+            )
+        }
+        if (notice != null) {
+            // The icon says whether it worked; the text stays in the normal text colour.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                GameIcon(
+                    if (notice.isError) GameIconKind.CLOSE else GameIconKind.CHECK,
+                    Modifier.size(16.dp), tint = if (notice.isError) Tomato else Leaf
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(notice.text, color = Cream, style = MaterialTheme.typography.bodyMedium)
+            }
+        } else if (!canExport) {
+            Text("Nothing to export yet.", color = Dim, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+/** Shows what the chosen file holds and asks before it overwrites anything. */
+@Composable
+private fun ImportDialog(pending: PendingImport, matchesReplaced: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
+    val incoming = pending.stats
+    val exportedOn = pending.exportedAt?.let { iso ->
+        runCatching {
+            Instant.parse(iso).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US))
+        }.getOrNull()
+    }
+    Dialog(onDismissRequest = onCancel) {
+        GamePanel(corner = 24.dp) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedText("IMPORT STATS?", fontSize = 27.sp, color = Sun)
+                Text(
+                    pending.fileName, color = Cream, style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    buildString {
+                        append(matchCount(incoming.matches))
+                        incoming.winRate?.let { append(" · ${(it * 100f).roundToInt()}% win rate") }
+                        append(" · ${duration(incoming.secondsPlayed)} played")
+                        if (exportedOn != null) append("\nExported $exportedOn")
+                    },
+                    color = Lilac, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center
+                )
+                if (matchesReplaced > 0) {
+                    Text(
+                        "This replaces the stats on this device (${matchCount(matchesReplaced)}). " +
+                            "Export them first if you want to keep them.",
+                        color = Cream, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center
+                    )
+                }
+                ChunkyTextButton(
+                    if (matchesReplaced > 0) "REPLACE MY STATS" else "IMPORT", onConfirm,
+                    Modifier.fillMaxWidth().height(56.dp),
+                    color = if (matchesReplaced > 0) Tomato else Leaf, fontSize = 19.sp, sound = null
+                )
+                ChunkyTextButton("CANCEL", onCancel, Modifier.fillMaxWidth().height(50.dp), color = PanelLight, fontSize = 17.sp)
+            }
+        }
+    }
+}
+
+private fun matchCount(matches: Int): String = if (matches == 1) "1 match" else "$matches matches"
 
 @Composable
 private fun NoMatchesYet(onPlay: () -> Unit) {
@@ -177,7 +342,10 @@ private fun BestsPanel(stats: LifetimeStats) {
 /** How often each tower was drafted: a ranked bar per tower, longest first. */
 @Composable
 private fun TowerPicksPanel(stats: LifetimeStats) {
-    val ranked = stats.towerPicks.entries.sortedByDescending { it.value }.take(TOP_TOWERS)
+    // Ties are ordered by id, so towers picked equally often do not swap places between launches.
+    val ranked = stats.towerPicks.entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .take(TOP_TOWERS)
     val most = ranked.first().value
     Section("Most picked towers") {
         for ((towerId, picks) in ranked) {
