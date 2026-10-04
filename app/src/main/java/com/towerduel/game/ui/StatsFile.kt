@@ -38,6 +38,8 @@ object StatsFile {
         }
         val towerPicks = JSONObject()
         for ((towerId, picks) in stats.towerPicks) towerPicks.put(towerId, picks)
+        val rivalWins = JSONObject()
+        for ((rivalId, wins) in stats.rivalWins) rivalWins.put(rivalId, wins)
 
         val body = JSONObject()
             .put("wins", stats.wins)
@@ -56,6 +58,7 @@ object StatsFile {
             .put("bestRound", stats.bestRound)
             .put("mostPops", stats.mostPops)
             .put("towerPicks", towerPicks)
+            .put("rivalWins", rivalWins)
 
         return JSONObject()
             .put("app", APP)
@@ -91,14 +94,18 @@ object StatsFile {
             }
         }
 
-        val towerPicks = HashMap<String, Int>()
-        val picks = body.optJSONObject("towerPicks")
-        if (picks != null) {
-            for (towerId in picks.keys()) {
-                val count = picks.optInt(towerId, 0)
-                if (count > 0) towerPicks[towerId] = count
+        // An id-to-count object; a file from before a counter existed simply has none.
+        fun counts(key: String): Map<String, Int> {
+            val out = HashMap<String, Int>()
+            val obj = body.optJSONObject(key) ?: return out
+            for (id in obj.keys()) {
+                val count = obj.optInt(id, 0)
+                if (count > 0) out[id] = count
             }
+            return out
         }
+        val towerPicks = counts("towerPicks")
+        val rivalWins = counts("rivalWins")
 
         val streak = count("streak")
         val stats = LifetimeStats(
@@ -118,7 +125,8 @@ object StatsFile {
             fastestWinSeconds = count("fastestWinSeconds"),
             bestRound = count("bestRound"),
             mostPops = count("mostPops"),
-            towerPicks = towerPicks
+            towerPicks = towerPicks,
+            rivalWins = rivalWins
         )
         return StatsExport(stats, root.optString("exportedAt").takeIf { it.isNotEmpty() })
     }

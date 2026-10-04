@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.towerduel.game.data.GameData
 import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.data.MapDef
-import com.towerduel.game.data.ShotKind
+import com.towerduel.game.data.EnemySendType
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.LanePath
 import com.towerduel.game.ui.GameViewModel
@@ -51,6 +51,7 @@ import com.towerduel.game.ui.components.GamePanel
 import com.towerduel.game.ui.components.OutlinedText
 import com.towerduel.game.ui.components.ScreenBackground
 import com.towerduel.game.ui.components.TowerPortrait
+import com.towerduel.game.ui.components.UnitPortrait
 import com.towerduel.game.ui.render.TerrainCache
 import com.towerduel.game.ui.render.drawBase
 import com.towerduel.game.ui.theme.AiColor
@@ -87,6 +88,7 @@ fun DraftScreen(viewModel: GameViewModel, onDeploy: () -> Unit) {
         // One scrolling list for everything above the button, so short screens can still reach every tower.
         LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { MatchCard(viewModel) }
+            item { RosterCard(viewModel.roster) }
             items(viewModel.offeredTroops, key = { it.id }) { troop ->
                 val isPicked = troop in picked
                 TowerCard(
@@ -120,10 +122,11 @@ private fun MatchCard(viewModel: GameViewModel) {
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 InfoLine("MAP", viewModel.map.name, null)
-                InfoLine("RULE", viewModel.modifier.name, viewModel.modifier.description)
+                for (rule in viewModel.rules) InfoLine("RULE", rule.name, rule.description)
                 InfoLine(
-                    "RIVAL", "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}",
-                    viewModel.aiPersonality.blurb, AiColor
+                    "RIVAL", viewModel.rival.name,
+                    "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}. ${viewModel.aiPersonality.blurb}",
+                    AiColor
                 )
             }
         }
@@ -232,6 +235,20 @@ private fun PickMark(picked: Boolean) {
     }
 }
 
+/** The units both sides can send this match, and that its waves are made of. */
+@Composable
+private fun RosterCard(roster: List<EnemySendType>) {
+    GamePanel(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text("UNITS THIS MATCH", color = Sun, style = MaterialTheme.typography.labelSmall)
+            Spacer(Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                for (unit in roster) UnitPortrait(unit, Modifier.size(38.dp))
+            }
+        }
+    }
+}
+
 /** Three bars that let two towers be compared at a glance: hitting power, reach and fire rate. */
 @Composable
 private fun StatBars(troop: TroopType) {
@@ -241,9 +258,16 @@ private fun StatBars(troop: TroopType) {
         Text(text, color = Sun, style = MaterialTheme.typography.labelSmall)
         return
     }
-    val pulse = troop.shot == ShotKind.FROST_PULSE || troop.shot == ShotKind.POISON_PULSE
-    // Poison and frost do their work over time, so their "power" bar counts the effect, not the tap.
-    val power = if (pulse) troop.dotDamagePerSecond * 3f + troop.slowFactor * 40f + troop.damage else troop.damage
+    // Damage per second, counting what the tower does besides the plain hit: crits, a beam's
+    // ramp, splash, chains, cuts, burn, and for the pulse towers the effect that is their point.
+    var power = troop.baseDps
+    if (troop.critChance > 0f) power *= 1f + troop.critChance * (troop.critMultiplier - 1f)
+    if (troop.rampMax > 0f) power *= 1f + troop.rampMax * 0.4f
+    if (troop.splashRadius > 0f) power *= 1f + troop.splashRadius / 9f
+    if (troop.chainTargets > 0) power *= 1f + 0.5f * troop.chainTargets
+    if (troop.pierce > 0) power *= 1f + 0.35f * troop.pierce
+    power += troop.dotDamagePerSecond * (if (troop.shot.isPulse) 2.5f else 1.5f)
+    power += troop.slowFactor * 40f + troop.knockback * 4f + troop.vulnerabilityPct * 0.6f
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatBar("PWR", (power / 55f).coerceIn(0.06f, 1f), Modifier.weight(1f))
         StatBar("RNG", (troop.range / 44f).coerceIn(0.06f, 1f), Modifier.weight(1f))

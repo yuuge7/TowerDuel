@@ -50,6 +50,14 @@ private fun paletteFor(theme: MapTheme): TerrainPalette = when (theme) {
         ground = Color(0xFF63505A), groundLight = Color(0xFF77626C), groundDark = Color(0xFF4D3D46),
         track = Color(0xFFD2C1AE), trackLight = Color(0xFFE5D8C8), trackEdge = Color(0xFF8D7968)
     )
+    MapTheme.SWAMP -> TerrainPalette(
+        ground = Color(0xFF5F9470), groundLight = Color(0xFF76AB84), groundDark = Color(0xFF4A7A5B),
+        track = Color(0xFFA68E6E), trackLight = Color(0xFFBFA888), trackEdge = Color(0xFF6F5B43)
+    )
+    MapTheme.AUTUMN -> TerrainPalette(
+        ground = Color(0xFFD3A54A), groundLight = Color(0xFFE3BC66), groundDark = Color(0xFFB98B38),
+        track = Color(0xFFEBDDBD), trackLight = Color(0xFFF8EFD8), trackEdge = Color(0xFFB09868)
+    )
 }
 
 /**
@@ -170,6 +178,21 @@ private fun DrawScope.groundDetail(theme: MapTheme, pal: TerrainPalette, x: Floa
                 Offset(x, y), Offset(x + dx, y + dy), stroke, StrokeCap.Round
             )
         }
+        MapTheme.SWAMP -> {
+            // A pair of reeds
+            val c = pal.groundDark.darken(0.2f)
+            drawLine(c, Offset(x, y), Offset(x + 0.2f * u, y - 1.3f * u), stroke, StrokeCap.Round)
+            drawLine(c, Offset(x + 0.6f * u, y), Offset(x + 0.5f * u, y - 0.9f * u), stroke, StrokeCap.Round)
+        }
+        MapTheme.AUTUMN -> {
+            // A fallen leaf
+            val leaf = when (rnd.nextInt(3)) {
+                0 -> Color(0xFFD9622B)
+                1 -> Color(0xFFB8402A)
+                else -> Color(0xFF8C5A2B)
+            }
+            drawOval(leaf.copy(alpha = 0.85f), Offset(x - 0.5f * u, y - 0.28f * u), Size(1f * u, 0.56f * u))
+        }
     }
 }
 
@@ -237,6 +260,40 @@ private fun DrawScope.prop(theme: MapTheme, pal: TerrainPalette, x: Float, y: Fl
             blob(rock.lighten(0.08f), x + 0.9f * u, y + 0.3f * u, 0.85f * u, ow)
             blob(rock, x - 0.2f * u, y, 1.25f * u, ow)
             drawCircle(pal.groundLight.copy(alpha = 0.5f), 0.4f * u, Offset(x - 0.6f * u, y - 0.45f * u))
+        }
+        MapTheme.SWAMP -> if (pick < 0.5f) {
+            // A pool with a lily pad
+            val rx = (1.5f + rnd.nextFloat() * 0.9f) * u
+            drawOval(Ink, Offset(x - rx - ow, y - rx * 0.6f - ow), Size(2f * (rx + ow), 1.2f * rx + 2f * ow))
+            drawOval(Color(0xFF3F7F8C), Offset(x - rx, y - rx * 0.6f), Size(2f * rx, 1.2f * rx))
+            drawOval(Color(0xFF7FD06A), Offset(x - rx * 0.5f, y - rx * 0.25f), Size(rx * 0.8f, rx * 0.5f))
+            drawCircle(Color(0xFFFF9EC4), 0.25f * u, Offset(x - rx * 0.1f, y))
+        } else {
+            // Toadstools
+            for (k in 0..1) {
+                val mx = x + (k * 1.6f - 0.8f) * u
+                val my = y + k * 0.4f * u
+                slab(Color(0xFFF4E6C8), mx - 0.25f * u, my, 0.5f * u, 0.8f * u, 0.2f * u, ow * 0.8f)
+                drawArc(Ink, 180f, 180f, true, Offset(mx - 0.85f * u - ow, my - 0.75f * u - ow), Size(1.7f * u + 2f * ow, 1.5f * u + 2f * ow))
+                drawArc(Color(0xFFD9483B), 180f, 180f, true, Offset(mx - 0.85f * u, my - 0.75f * u), Size(1.7f * u, 1.5f * u))
+                drawCircle(Color.White, 0.16f * u, Offset(mx - 0.3f * u, my - 0.35f * u))
+                drawCircle(Color.White, 0.13f * u, Offset(mx + 0.35f * u, my - 0.3f * u))
+            }
+        }
+        MapTheme.AUTUMN -> if (pick < 0.5f) {
+            // A bush that has turned
+            val bush = Color(0xFFD9622B)
+            blob(bush.darken(0.12f), x - 0.9f * u, y + 0.2f * u, 1.1f * u, ow)
+            blob(Color(0xFFB8402A), x + 0.9f * u, y + 0.3f * u, 1f * u, ow)
+            blob(bush, x, y - 0.4f * u, 1.25f * u, ow)
+            drawCircle(Color.White.copy(alpha = 0.25f), 0.45f * u, Offset(x - 0.3f * u, y - 0.8f * u))
+        } else {
+            // A pumpkin
+            val pumpkin = Color(0xFFF2882B)
+            drawOval(Ink, Offset(x - 1.3f * u - ow, y - 0.95f * u - ow), Size(2.6f * u + 2f * ow, 1.9f * u + 2f * ow))
+            drawOval(pumpkin, Offset(x - 1.3f * u, y - 0.95f * u), Size(2.6f * u, 1.9f * u))
+            drawOval(pumpkin.darken(0.15f), Offset(x - 0.45f * u, y - 0.95f * u), Size(0.9f * u, 1.9f * u), style = Stroke(0.2f * u))
+            slab(Color(0xFF5E8F3A), x - 0.2f * u, y - 1.5f * u, 0.4f * u, 0.7f * u, 0.15f * u, ow * 0.7f)
         }
     }
 }

@@ -28,39 +28,55 @@ only bundled assets are two open-licensed fonts.
 
 ## Features
 
-- **Draft your defense.** Each match offers you 5 of the 12 towers and you
+- **Draft your defense.** Each match offers you 5 of the 20 towers and you
   keep 3. The AI drafts from its own offer, so neither side knows what the
   other holds until the towers go down.
-- **12 towers**, each with a two-step upgrade track: Sentry, Sniper, Frost
-  Spire, Bomb Tower, Gatling, Tesla Coil, Poison Totem, Gold Mine, Stun
-  Turret, Flak Net, Beacon, Mortar. Splash, chaining, slows, stuns, damage
-  over time, damage auras and pure economy are all covered.
-- **8 sendable units** shared by both sides: Runner, Grunt, Swarm, Flyer,
-  Tank, Healer, Splitter, Boss. The bigger ones unlock as the rounds pass,
-  and most sends raise your income for the rest of the match.
-- **Waves.** Every 20 seconds the same wave hits both lanes, each tougher
-  than the last. After the final round comes sudden death, where waves grow
-  faster and tougher until one side breaks.
-- **4 maps** with their own look and track: Clover Bend (meadow), Sidewinder
-  (dunes), Icicle Pass (snow), Cinder Loop (lava, with a track that crosses
-  itself).
-- **6 match modifiers**, one rolled per match: Rush Hour, Gold Rush, Glass
-  Cannons, Fortified, Blitz, Iron Lives.
-- **An AI that plays the same game you do.** On top of the difficulty you
-  pick (Easy, Medium, Hard) it rolls a play style: Rusher, Turtle, Balanced
-  or Tycoon. It places towers by how much track they cover, saves up for
-  what it wants, answers what you send, and on Hard sizes its pushes to what
-  your defense can absorb.
+- **20 towers**, each with a two-step upgrade track. Besides plain guns
+  there is splash (Bomb Tower, Mortar), chain lightning (Tesla Coil), slows
+  (Frost Spire), stuns (Stun Turret), poison and fire (Poison Totem, Flame
+  Tower), a beam that ramps up on one target (Prism), a blade that cuts
+  through a whole line (Glaive Thrower), crits (Crossbow), a curse that makes
+  everything else hit harder (Hex Totem), knockback (Gust Fan), executions
+  (Reaper), extra bounties (Bounty Hunter), anti-air (Flak Net), a damage
+  aura (Beacon) and pure economy (Gold Mine).
+- **14 units, 8 per match.** Every match rolls its own roster: Runner and
+  Grunt, one finisher (Boss or Juggernaut) and five of Swarm, Drummer, Flyer,
+  Tank, Phantom, Healer, Bulwark, Splitter, Troll and Brood Mother. Both
+  sides send from that roster, and the waves are built from it. Armour,
+  regeneration, phasing out of reach, haste auras and immunity to slows all
+  ask for different towers.
+- **Waves that are never the same twice.** Each round's wave is generated
+  for the match: sometimes a mixed bag, sometimes a themed one (Rush, Swarm,
+  Air Raid, Heavy Armour, Boss Round). The same wave hits both lanes, each
+  tougher than the last. After the final round comes sudden death, where
+  waves grow faster and tougher until one side breaks.
+- **Maps without end.** Six named maps in six looks (meadow, dunes, snow,
+  lava, swamp, autumn), each also played mirrored, and half of all matches
+  on a freshly generated track that is checked for fairness before you see
+  it.
+- **13 rules**, one rolled per match and sometimes two at once: Rush Hour,
+  Gold Rush, Glass Cannons, Fortified, Blitz, Iron Lives, Bounty Boom, Thick
+  Skin, War Economy, Quick March, Rapid Fire, Marathon, Mirror Match.
+- **Random events.** A few times a match something happens to both lanes
+  at once: Gold Rain, an Ambush wave, Payday, a Stampede, a Power Surge,
+  Overdrive, Fog or a Cold Snap.
+- **12 named rivals, 8 play styles.** On top of the difficulty you pick
+  (Easy, Medium, Hard) you draw a rival: a Rusher, Turtle, Balanced, Tycoon,
+  Swarmer, Bruiser, Gambler or Trickster, with something to say about how
+  the match is going. The AI plays the same game you do: it places towers
+  by how much track they cover, saves up for what it wants, answers what you
+  send, and on Hard sizes its pushes to what your defense can absorb.
 - **A live main menu.** The match on the menu is real: two AIs playing the
   same engine you are about to.
-- **Short matches.** About 5 minutes, or 3 under the Blitz modifier.
+- **Short matches.** About 4 minutes; 3 under Blitz, 5 under Marathon.
 - **A stats tab.** Win rate, record per difficulty, lifetime totals, personal
-  bests and your most picked towers, all kept on the device.
+  bests, your most picked towers and which rivals you have beaten, all kept
+  on the device.
 - **Stats backup.** Export your stats to a file and import them again, for
   example on a new phone.
 
-Towers offered, map, modifier and AI style are rolled independently, so two
-matches rarely play the same way.
+Towers offered, units, map, rules, rival, waves and events are all rolled
+independently, so no two matches play the same way.
 
 ## Install
 
@@ -85,18 +101,21 @@ Each side starts with 130 gold and 100 lives and earns gold every second.
   each other, and a lane holds up to 10.
 - **Tap a placed tower** to see its range and stats, upgrade it (twice),
   change which unit it shoots first, or sell it for 70% of what you spent.
-- **Send.** The two rows of unit buttons send units down the rival's lane
-  (the upper one). A sent unit is as tough as the current round's wave.
-  Every send except the Boss also raises your income for good, so cheap
-  sends early pay for big pushes later.
+- **Send.** The two rows of unit buttons are this match's roster; the
+  draft screen shows it before you pick towers. Sending a unit puts it on
+  the rival's lane (the upper one), as tough as the current round's wave.
+  Most sends also raise your income for good, so cheap sends early pay for
+  big pushes later.
 - **Survive.** A wave walks both lanes every round. Every unit that reaches
   a keep costs that side lives, and every unit you pop pays a bounty.
+- **Events** are announced on your lane when they strike, with a countdown
+  while they last. They always hit both sides.
 - **Pause**, or the system back button, stops the match. Leaving the app
   pauses it automatically. The button on the right of the top bar doubles
   the speed.
-- The first side to reach 0 lives loses. After round 12 (round 6 under
-  Blitz) it is sudden death: a wave every 10 seconds, each one much tougher
-  and faster than the one before.
+- The first side to reach 0 lives loses. After the last round (round 12,
+  unless a rule changes the match length) it is sudden death: a wave every
+  10 seconds, each one much tougher and faster than the one before.
 
 ### Backing up your stats
 
@@ -180,8 +199,10 @@ app/src/main/java/com/towerduel/game/
 │   ├── GameData.kt          All game content and balance numbers
 │   └── GameModels.kt        Data classes and enums for that content
 ├── engine/
-│   ├── GameEngine.kt        The simulation: waves, income, targeting, projectiles, status effects, win condition
+│   ├── GameEngine.kt        The simulation: rounds, events, income, targeting, projectiles, status effects, win condition
 │   ├── AiController.kt      The opponent's decision making (and its draft)
+│   ├── WaveGenerator.kt     Builds each round's wave from the match's roster
+│   ├── MapGenerator.kt      Makes new tracks and checks them for fairness
 │   ├── PathMath.kt          The lane track: a smooth curve through a map's control points
 │   └── RuntimeModels.kt     Live match state (towers, units, projectiles, effects, battlefields)
 └── ui/
@@ -226,21 +247,27 @@ up with no other changes:
 | List | Adds |
 | --- | --- |
 | `TROOPS` | A tower to the draft pool, with its upgrade tiers |
-| `ENEMY_SENDS` | A unit, sendable unless marked `sendable = false` |
-| `WAVES` | The units of one round |
-| `MAPS` | A map: a theme and the track's control points in the 100 x 62 lane space |
-| `MODIFIERS` | A match modifier |
+| `ENEMY_SENDS` | A unit. Unless marked `sendable = false` it joins the pool that match rosters are drawn from |
+| `MAPS` | A named map: a theme and the track's control points in the 100 x 62 lane space |
+| `MODIFIERS` | A rule |
+| `RIVALS` | A named opponent: a play style, a portrait unit and its lines |
 
 A new tower or unit is drawn as a plain turret or a plain blob in its own
 colour until you give it a branch in
 [`Sprites.kt`](app/src/main/java/com/towerduel/game/ui/render/Sprites.kt).
 
-Global balance values (starting gold, lives, income, round timing, towers
-per lane) are constants at the top of `GameData.kt`.
+What a tower or unit can *do* is a set of fields on `TroopType` and
+`EnemySendType` (splash, pierce, crit, curse, armour, regeneration and so
+on), all applied in one place: `GameEngine.hit`. A new ability is a new
+field there.
 
-To add an AI personality, add a value to the `AiPersonality` enum in
-`GameModels.kt` and give it a value in each of the personality tables at the
-top of `AiController.kt`.
+Global balance values (starting gold, lives, income, round timing, towers
+per lane, how often events strike) are constants at the top of `GameData.kt`.
+
+To add a random event, add a value to `MatchEventType` in `GameModels.kt` and
+give it its effect in `GameEngine.kt`. To add an AI play style, add a value
+to the `AiPersonality` enum and a row to the `Style` table at the top of
+`AiController.kt`.
 
 ## Tests
 
@@ -248,12 +275,18 @@ top of `AiController.kt`.
 ./gradlew :app:testDebugUnitTest
 ```
 
-`BalanceSimulationTest` plays about 300 whole matches headless, AI against
-AI, in about a minute. It fails if any match does not end, if a harder AI
-does not beat an easier one most of the time, or if a personality can never
-win. It also prints a table per matchup (wins, match length, how many
-matches ended before sudden death, lives left), which is the tool to use
-when changing numbers in `GameData.kt`.
+`BalanceSimulationTest` plays about 480 whole matches headless, AI against
+AI, each on its own random map, roster and draft, in under a minute. It
+fails if any match does not end, if a harder AI does not beat an easier one
+most of the time, or if a play style can never win. It also prints a table
+per matchup (wins, match length, how many matches ended before sudden death,
+lives left), which is the tool to use when changing numbers in `GameData.kt`.
+
+`GeneratorsTest` keeps the random parts fair: every named map and its mirror
+passes the same checks a generated map must, the map generator almost never
+gives up, rosters always hold the basics and one finisher, waves use only
+units that are unlocked and stay near their health budget, and two rules
+rolled together never contradict each other.
 
 `LifetimeStatsTest` covers how a finished match is added to the stats tab's
 numbers: streaks, the per-difficulty record, totals and bests.

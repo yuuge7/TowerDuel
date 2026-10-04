@@ -52,14 +52,19 @@ class ProfileStore(context: Context) {
     /** Swaps in stats read from an export file, in place of whatever was recorded on this device. */
     fun replaceStats(imported: LifetimeStats) {
         // Picks for towers this version does not have would have nothing to show.
-        val known = GameData.TROOPS.map { it.id }.toSet()
-        stats = imported.copy(towerPicks = imported.towerPicks.filterKeys { it in known })
+        val towers = GameData.TROOPS.map { it.id }.toSet()
+        val rivals = GameData.RIVALS.map { it.id }.toSet()
+        stats = imported.copy(
+            towerPicks = imported.towerPicks.filterKeys { it in towers },
+            rivalWins = imported.rivalWins.filterKeys { it in rivals }
+        )
 
         val editor = prefs.edit()
         // Clear the per-tower and per-difficulty counters first: the import only writes the ones
         // it has, and the rest must not survive from the old record. (An editor applies its
         // removals before its puts, so the values saved below are kept.)
         for (tower in GameData.TROOPS) editor.remove(KEY_PICK + tower.id)
+        for (rival in GameData.RIVALS) editor.remove(KEY_RIVAL + rival.id)
         for (difficulty in Difficulty.entries) {
             editor.remove(KEY_WINS + "_" + difficulty.name)
             editor.remove(KEY_LOSSES + "_" + difficulty.name)
@@ -87,7 +92,8 @@ class ProfileStore(context: Context) {
         bestRound = prefs.getInt(KEY_BEST_ROUND, 0),
         mostPops = prefs.getInt(KEY_MOST_POPS, 0),
         // Only towers that still exist: a pick count for a removed tower has nothing to show.
-        towerPicks = GameData.TROOPS.associate { it.id to prefs.getInt(KEY_PICK + it.id, 0) }.filterValues { it > 0 }
+        towerPicks = GameData.TROOPS.associate { it.id to prefs.getInt(KEY_PICK + it.id, 0) }.filterValues { it > 0 },
+        rivalWins = GameData.RIVALS.associate { it.id to prefs.getInt(KEY_RIVAL + it.id, 0) }.filterValues { it > 0 }
     )
 
     private fun save(editor: SharedPreferences.Editor, s: LifetimeStats) {
@@ -111,6 +117,7 @@ class ProfileStore(context: Context) {
             editor.putInt(KEY_LOSSES + "_" + difficulty.name, record.losses)
         }
         for ((towerId, picks) in s.towerPicks) editor.putInt(KEY_PICK + towerId, picks)
+        for ((rivalId, wins) in s.rivalWins) editor.putInt(KEY_RIVAL + rivalId, wins)
     }
 
     private companion object {
@@ -130,6 +137,7 @@ class ProfileStore(context: Context) {
         const val KEY_BEST_ROUND = "best_round"
         const val KEY_MOST_POPS = "most_pops"
         const val KEY_PICK = "pick_"
+        const val KEY_RIVAL = "rival_"
         const val KEY_DIFFICULTY = "difficulty"
         const val KEY_NEW = "new_player"
     }

@@ -110,6 +110,7 @@ class SoundFx(context: Context) {
         SoundCue.SEND -> mix(sweep(0.14f, 320f, 760f, decay = 14f, gain = 0.8f), noise(0.1f, decay = 26f, gain = 0.25f))
         SoundCue.ROUND -> seq(horn(0.14f, 440f), horn(0.3f, 659f))
         SoundCue.WARNING -> seq(horn(0.13f, 880f), horn(0.13f, 622f), horn(0.13f, 880f), horn(0.2f, 622f))
+        SoundCue.EVENT -> seq(tone(0.09f, 784f, 8f), tone(0.09f, 1175f, 8f), tone(0.24f, 1568f, 7f))
         SoundCue.WIN -> seq(horn(0.13f, 523f), horn(0.13f, 659f), horn(0.13f, 784f), horn(0.5f, 1047f))
         SoundCue.LOSE -> seq(horn(0.2f, 392f), horn(0.2f, 330f), horn(0.5f, 262f))
         SoundCue.CLICK -> mix(sweep(0.04f, 1300f, 800f, decay = 70f), noise(0.012f, decay = 200f, gain = 0.4f))

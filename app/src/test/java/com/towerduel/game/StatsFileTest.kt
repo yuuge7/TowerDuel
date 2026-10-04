@@ -17,7 +17,7 @@ class StatsFileTest {
 
     private fun played(): LifetimeStats {
         var stats = LifetimeStats()
-        stats += MatchRecord(MatchOutcome.PLAYER_WIN, Difficulty.EASY, listOf("sentry", "bomb", "frost"), 210, 12, 140, 30, 5200, 9, 12)
+        stats += MatchRecord(MatchOutcome.PLAYER_WIN, Difficulty.EASY, listOf("sentry", "bomb", "frost"), 210, 12, 140, 30, 5200, 9, 12, rivalId = "dash")
         stats += MatchRecord(MatchOutcome.PLAYER_WIN, Difficulty.HARD, listOf("sentry", "sniper", "mortar"), 305, 17, 260, 55, 8100, 10, 40)
         stats += MatchRecord(MatchOutcome.AI_WIN, Difficulty.HARD, listOf("gatling", "sniper", "beacon"), 150, 8, 60, 12, 2500, 5, 100)
         stats += MatchRecord(MatchOutcome.DRAW, Difficulty.MEDIUM, listOf("sentry", "bomb", "chain"), 330, 20, 300, 80, 9900, 10, 100)
@@ -31,6 +31,14 @@ class StatsFileTest {
         // A drawn match leaves an empty per-difficulty record behind, which the file does not carry.
         assertEquals(stats.copy(byDifficulty = stats.byDifficulty.filterValues { it.matches > 0 }), read.stats)
         assertEquals("2026-10-04T09:30:00Z", read.exportedAt)
+        assertEquals(mapOf("dash" to 1), read.stats.rivalWins)
+    }
+
+    @Test
+    fun aFileFromBeforeRivalsWereTrackedStillImports() {
+        val read = StatsFile.decode("""{"app": "TowerDuel", "format": 1, "stats": {"wins": 2, "towerPicks": {"bomb": 2}}}""")
+        assertEquals(2, read.stats.wins)
+        assertTrue(read.stats.rivalWins.isEmpty())
     }
 
     @Test

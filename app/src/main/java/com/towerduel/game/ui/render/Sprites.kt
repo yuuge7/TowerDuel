@@ -156,10 +156,95 @@ fun DrawScope.drawTower(
             drawRoundRect(Color.White, Offset(cx - 0.75f * u, cy - 0.22f * u), Size(1.5f * u, 0.44f * u), CornerRadius(0.2f * u))
             drawRoundRect(Color.White, Offset(cx - 0.22f * u, cy - 0.75f * u), Size(0.44f * u, 1.5f * u), CornerRadius(0.2f * u))
         }
+        "flamer" -> {
+            turret(cx, cy, u, aimDeg, kick * 0.3f, color, 1.9f, barrels = 1, spread = 0f, length = 2.2f, width = 1.5f, barrelColor = Gunmetal, muzzle = 1.9f)
+            // Pilot light, flaring while it fires
+            val firing = (1f - sinceFiredMs / 220f).coerceIn(0f, 1f)
+            val tipX = cx + cos(aimRad) * 3.1f * u
+            val tipY = cy + sin(aimRad) * 3.1f * u
+            drawCircle(Color(0xFFFFC23C), (0.35f + 0.5f * firing) * u, Offset(tipX, tipY))
+            drawCircle(Color.White.copy(alpha = 0.8f), (0.15f + 0.2f * firing) * u, Offset(tipX, tipY))
+        }
+        "prism" -> {
+            blob(Gunmetal, cx, cy, 2.05f * u, ow)
+            val charged = (1f - sinceFiredMs / 300f).coerceIn(0f, 1f)
+            if (charged > 0f) drawCircle(color.copy(alpha = 0.5f * charged), 2.6f * u, Offset(cx, cy))
+            // A glass triangle, three faces catching different light
+            shape(Color.White, ow, cx, cy - 1.9f * u, cx + 1.7f * u, cy + 1.2f * u, cx - 1.7f * u, cy + 1.2f * u)
+            shape(color, 0f, cx, cy - 1.9f * u, cx, cy + 1.2f * u, cx - 1.7f * u, cy + 1.2f * u)
+            shape(Frost, 0f, cx, cy - 0.2f * u, cx + 1.7f * u, cy + 1.2f * u, cx, cy + 1.2f * u)
+        }
+        "glaive" -> {
+            blob(color, cx, cy, 1.95f * u, ow)
+            drawCircle(color.darken(0.3f), 0.8f * u, Offset(cx, cy))
+            // The next blade, waiting on the arm; gone for a moment after a throw
+            val ready = (sinceFiredMs / 400f).coerceIn(0f, 1f)
+            if (ready > 0.2f) {
+                val bx = cx + cos(aimRad) * 2.4f * u
+                val by = cy + sin(aimRad) * 2.4f * u
+                rotate(timeMs * 0.25f, Offset(bx, by)) { drawStar(Stone, bx, by, 1.5f * u * ready, ow * 0.8f) }
+            }
+        }
+        "crossbow" -> {
+            rotate(aimDeg, Offset(cx, cy)) {
+                // Limbs and string, then the stock on top
+                val tipX = cx + 2.2f * u - kick
+                for (side in -1..1 step 2) {
+                    val endX = cx + 0.9f * u - kick
+                    val endY = cy + side * 2.3f * u
+                    drawLine(Ink, Offset(tipX, cy), Offset(endX, endY), 0.75f * u + ow * 2f, StrokeCap.Round)
+                    drawLine(color.lighten(0.2f), Offset(tipX, cy), Offset(endX, endY), 0.75f * u, StrokeCap.Round)
+                    drawLine(Color.White.copy(alpha = 0.9f), Offset(endX, endY), Offset(cx - 0.4f * u, cy), 0.18f * u)
+                }
+                slab(color, cx - 1.6f * u, cy - 0.45f * u, 4.2f * u - kick, 0.9f * u, 0.3f * u, ow)
+            }
+            blob(color.darken(0.25f), cx, cy, 1.1f * u, ow)
+        }
+        "hex" -> {
+            blob(Gunmetal, cx, cy, 2.1f * u, ow)
+            blob(color, cx, cy, 1.55f * u, ow)
+            // An eye that follows its target
+            drawOval(Color.White, Offset(cx - 1.05f * u, cy - 0.7f * u), Size(2.1f * u, 1.4f * u))
+            drawCircle(Ink, 0.5f * u, Offset(cx + cos(aimRad) * 0.45f * u, cy + sin(aimRad) * 0.3f * u))
+            val orbit = timeMs * 0.004f
+            drawCircle(color.lighten(0.5f), 0.4f * u, Offset(cx + cos(orbit) * 2.5f * u, cy + sin(orbit) * 2.5f * u))
+        }
+        "gust" -> {
+            blob(Steel, cx, cy, 2.15f * u, ow)
+            // Fan blades: lazy when idle, a blur right after a gust
+            val spin = timeMs * 0.2f + (1f - sinceFiredMs / 700f).coerceIn(0f, 1f) * timeMs * 0.9f
+            for (blade in 0 until 3) {
+                rotate(spin + blade * 120f, Offset(cx, cy)) {
+                    drawOval(Ink, Offset(cx - 0.55f * u - ow * 0.6f, cy - 1.95f * u - ow * 0.6f), Size(1.1f * u + ow * 1.2f, 1.9f * u + ow * 1.2f))
+                    drawOval(color, Offset(cx - 0.55f * u, cy - 1.95f * u), Size(1.1f * u, 1.9f * u))
+                }
+            }
+            blob(Stone, cx, cy, 0.6f * u, ow * 0.8f)
+        }
+        "bounty" -> {
+            turret(cx, cy, u, aimDeg, kick, color, 1.9f, barrels = 1, spread = 0f, length = 3f, width = 0.75f)
+            // Its badge: a coin
+            blob(Sun, cx, cy, 0.85f * u, ow * 0.8f)
+            drawCircle(Sun.darken(0.25f), 0.45f * u, Offset(cx, cy), style = Stroke(0.18f * u))
+        }
+        "reaper" -> {
+            rotate(aimDeg, Offset(cx, cy)) {
+                // The blade swings out on a strike
+                val swing = (1f - sinceFiredMs / 200f).coerceIn(0f, 1f) * 0.8f * u
+                shape(
+                    Stone, ow,
+                    cx + 1.2f * u, cy - 0.5f * u, cx + 3.3f * u + swing, cy - 2.1f * u,
+                    cx + 4.1f * u + swing, cy - 0.2f * u, cx + 2.9f * u + swing, cy - 0.9f * u, cx + 1.2f * u, cy + 0.5f * u
+                )
+            }
+            blob(color, cx, cy, 1.95f * u, ow)
+            drawCircle(Ink, 0.75f * u, Offset(cx, cy))
+            drawCircle(Tomato, 0.3f * u, Offset(cx, cy))
+        }
         else -> {
             // A tower with no art of its own: a plain turret in its colour.
             val kind = type.shot
-            if (type.isAttacker && kind != ShotKind.FROST_PULSE && kind != ShotKind.POISON_PULSE) {
+            if (type.isAttacker && !kind.isPulse) {
                 turret(cx, cy, u, aimDeg, kick, color, 1.95f, barrels = 1, spread = 0f, length = 2.8f, width = 0.9f)
             } else {
                 blob(color, cx, cy, 2f * u, ow)
@@ -213,7 +298,8 @@ fun DrawScope.drawUnitShadow(type: EnemySendType, cx: Float, cy: Float, u: Float
 fun DrawScope.drawUnit(
     type: EnemySendType, cx: Float, groundY: Float, u: Float,
     dirX: Float, dirY: Float, timeMs: Float, seed: Int,
-    hpFrac: Float, flash: Float, slowed: Boolean, stunned: Boolean, poisoned: Boolean
+    hpFrac: Float, flash: Float, slowed: Boolean, stunned: Boolean, poisoned: Boolean,
+    cursed: Boolean = false, hasted: Boolean = false
 ) {
     val r = type.radius * u
     val ow = OUTLINE * u
@@ -280,6 +366,42 @@ fun DrawScope.drawUnit(
             drawRoundRect(Leaf.darken(0.15f), Offset(px - r * 0.27f, py - r * 0.08f), Size(r * 0.54f, r * 0.16f), CornerRadius(r * 0.05f))
             drawRoundRect(Leaf.darken(0.15f), Offset(px - r * 0.08f, py - r * 0.27f), Size(r * 0.16f, r * 0.54f), CornerRadius(r * 0.05f))
         }
+        "bulwark" -> {
+            // A riveted plate across the lower half
+            drawArc(Ink, 0f, 180f, true, Offset(cx - rx - ow, cy - ry - ow), Size(2f * (rx + ow), 2f * (ry + ow)))
+            drawArc(Color(0xFFC3CCD9), 0f, 180f, true, Offset(cx - rx, cy - ry), Size(2f * rx, 2f * ry))
+            drawRoundRect(Ink, Offset(cx - rx - ow, cy - ry * 0.12f), Size(2f * (rx + ow), ry * 0.24f), CornerRadius(ry * 0.1f))
+            for (side in -1..1) drawCircle(Ink, r * 0.09f, Offset(cx + side * rx * 0.55f, cy + ry * 0.5f))
+        }
+        "troll" -> {
+            // Tusks
+            for (side in -1..1 step 2) {
+                shape(
+                    Color.White, ow * 0.7f,
+                    cx + side * rx * 0.26f, cy + ry * 0.4f, cx + side * rx * 0.52f, cy + ry * 0.4f, cx + side * rx * 0.44f, cy + ry * 0.02f
+                )
+            }
+        }
+        "brood" -> {
+            // Eggs showing through
+            drawCircle(shade.darken(0.12f), r * 0.17f, Offset(cx - rx * 0.45f, cy + ry * 0.4f))
+            drawCircle(shade.darken(0.12f), r * 0.17f, Offset(cx + rx * 0.08f, cy + ry * 0.58f))
+            drawCircle(shade.darken(0.12f), r * 0.17f, Offset(cx + rx * 0.5f, cy + ry * 0.3f))
+        }
+        "drummer" -> {
+            // The drum it carries
+            slab(Color(0xFF8A4B2A), cx - rx * 0.55f, cy + ry * 0.38f, rx * 1.1f, ry * 0.56f, ry * 0.15f, ow * 0.8f)
+            drawRoundRect(Color(0xFFF4E6C8), Offset(cx - rx * 0.55f, cy + ry * 0.38f), Size(rx * 1.1f, ry * 0.2f), CornerRadius(ry * 0.1f))
+        }
+        "juggernaut" -> {
+            // Spikes along the top
+            val top = cy - ry
+            for (side in -1..1) {
+                val sx = cx + side * rx * 0.5f
+                val foot = top + ry * (0.16f + 0.14f * side * side)
+                shape(Gunmetal, ow, sx - rx * 0.2f, foot, sx, foot - ry * 0.5f, sx + rx * 0.2f, foot)
+            }
+        }
     }
 
     // Eyes look where the unit is heading.
@@ -293,7 +415,7 @@ fun DrawScope.drawUnit(
         drawCircle(Color.White, eyeR, Offset(ex, eyeY))
         drawCircle(Ink, eyeR * 0.52f, Offset(ex + dirX * eyeR * 0.4f, eyeY + dirY * eyeR * 0.4f))
     }
-    if (type.id == "boss" || type.id == "tank") {
+    if (type.id == "boss" || type.id == "tank" || type.id == "juggernaut" || type.id == "troll") {
         // Angry brows
         val brow = Stroke(ow * 1.3f, cap = StrokeCap.Round)
         for (side in -1..1 step 2) {
@@ -319,6 +441,26 @@ fun DrawScope.drawUnit(
         for (i in 0 until 3) {
             val a = timeMs * 0.008f + i * 2.094f
             drawStar(Sun, cx + cos(a) * rx * 0.8f, cy - ry - r * 0.35f + sin(a) * r * 0.18f, r * 0.26f + 0.5f * u, ow * 0.5f)
+        }
+    }
+
+    if (cursed) {
+        // The mark of a Hex Totem, hanging over its head
+        val mx = cx + rx * 0.9f
+        val my = cy - ry - r * 0.15f
+        val s = r * 0.24f + 0.35f * u
+        shape(Color(0xFF8A63D2), ow * 0.6f, mx, my - s, mx + s * 0.7f, my, mx, my + s, mx - s * 0.7f, my)
+    }
+    if (hasted) {
+        // Speed lines trailing behind
+        for (line in -1..1 step 2) {
+            val oy = line * ry * 0.4f
+            drawLine(
+                Color.White.copy(alpha = 0.75f),
+                Offset(cx - dirX * rx * 1.25f, cy - dirY * ry * 1.25f + oy),
+                Offset(cx - dirX * rx * 2f, cy - dirY * ry * 2f + oy),
+                ow * 0.8f, StrokeCap.Round
+            )
         }
     }
 

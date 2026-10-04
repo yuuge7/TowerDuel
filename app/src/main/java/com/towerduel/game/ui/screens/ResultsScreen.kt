@@ -88,11 +88,14 @@ fun ResultsScreen(
             val pop = remember { Animatable(0.4f) }
             LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 220f)) }
             // The loser of the match is whoever is left standing on the winner's lane.
-            UnitPortrait(
-                GameData.unit(if (outcome == MatchOutcome.AI_WIN) "boss" else "runner"),
-                Modifier.size(84.dp).scale(pop.value)
-            )
+            val opponent = viewModel.rival
+            UnitPortrait(GameData.unit(opponent.unitId), Modifier.size(84.dp).scale(pop.value))
             OutlinedText(headline, fontSize = 62.sp, color = color, modifier = Modifier.scale(pop.value))
+            // The rival gets the last word.
+            Text(
+                "${opponent.name}: “${if (outcome == MatchOutcome.PLAYER_WIN) opponent.lines.lose else opponent.lines.win}”",
+                color = Cream, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center
+            )
             Text(
                 "Round ${eng.round} · ${formatDuration(eng.elapsedMs)} · ${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}",
                 color = Lilac, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center

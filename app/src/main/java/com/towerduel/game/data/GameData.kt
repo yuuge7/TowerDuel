@@ -1,6 +1,7 @@
 package com.towerduel.game.data
 
 import androidx.compose.ui.graphics.Color
+import kotlin.random.Random
 
 object GameData {
 
@@ -20,19 +21,38 @@ object GameData {
     const val PATH_HALF_WIDTH = 4f
     const val PATH_CLEARANCE = 6.6f
 
-    // Natural waves hit both lanes at once, one every round.
+    // Waves hit both lanes at once, one every round.
     const val ROUND_INTERVAL_SEC = 20
     const val FIRST_ROUND_DELAY_SEC = 10
     const val OVERTIME_ROUND_INTERVAL_SEC = 10
     const val OVERTIME_LIMIT_SEC = 90
 
-    /** Wave units get tougher every round; past the scripted rounds the growth is steep on purpose. */
-    const val WAVE_HP_GROWTH_PER_ROUND = 0.11f
+    /**
+     * Waves are generated for a level from 1 to this. A match of any length climbs the whole
+     * ladder: a short one skips levels, a long one repeats them.
+     */
+    const val WAVE_LEVELS = 12
+
+    /** Wave units get tougher every level; past the last round the growth is steep on purpose. */
+    const val WAVE_HP_GROWTH_PER_LEVEL = 0.11f
     const val OVERTIME_HP_GROWTH = 1.45f
 
     /** Sudden-death waves also walk faster each round, so even a Boss arrives before the match is called. */
     const val OVERTIME_SPEED_GROWTH = 0.15f
     const val OVERTIME_MAX_SPEED = 2.5f
+
+    /** How many units a match's roster holds, and the chance a match is played under two rules at once. */
+    const val ROSTER_SIZE = 8
+    const val SECOND_RULE_CHANCE = 0.3f
+
+    /** Chance that a match is played on a freshly generated map instead of a named one. */
+    const val WILD_MAP_CHANCE = 0.5f
+
+    // Random events: the first one comes a while into the match, the rest at uneven intervals.
+    const val FIRST_EVENT_MIN_SEC = 45
+    const val FIRST_EVENT_MAX_SEC = 75
+    const val EVENT_GAP_MIN_SEC = 40
+    const val EVENT_GAP_MAX_SEC = 70
 
     // ---------------------------------------------------------------------
     // TOWERS — the draft pool. Each side is offered DRAFT_OFFER and keeps DRAFT_PICKS.
@@ -168,11 +188,100 @@ object GameData {
                 UpgradeTier("Barrage", "Reloads far faster, bigger blast", 210, reloadMult = 0.6f, splashMult = 1.2f)
             ),
             description = "Lobs shells that flatten a wide area. Slow to reload."
+        ),
+        TroopType(
+            id = "flamer", name = "Flame Tower", color = Color(0xFFFF6A2A),
+            cost = 70, role = "Burns", shot = ShotKind.FLAME,
+            damage = 4f, range = 12f, fireRateMs = 160,
+            targeting = TargetPriority.CLOSEST, splashRadius = 5f,
+            dotDamagePerSecond = 5f, dotDurationMs = 2000,
+            upgrades = listOf(
+                UpgradeTier("Hotter Fuel", "+50% damage, fiercer burn", 80, damageMult = 1.5f, effectMult = 1.5f),
+                UpgradeTier("Inferno", "Longer, wider flame", 140, damageMult = 1.4f, rangeMult = 1.25f, splashMult = 1.4f)
+            ),
+            description = "A short jet of fire that sets a whole clump of units burning."
+        ),
+        TroopType(
+            id = "prism", name = "Prism", color = Color(0xFFFF9EEA),
+            cost = 95, role = "Melts bosses", shot = ShotKind.BEAM,
+            damage = 5f, range = 24f, fireRateMs = 200,
+            targeting = TargetPriority.STRONGEST, rampPerHit = 0.12f, rampMax = 2.5f,
+            upgrades = listOf(
+                UpgradeTier("Focus Lens", "+50% damage", 100, damageMult = 1.5f),
+                UpgradeTier("Death Ray", "Ramps much further, pulses faster", 175, effectMult = 1.6f, reloadMult = 0.85f)
+            ),
+            description = "A beam that grows stronger the longer it stays on one target."
+        ),
+        TroopType(
+            id = "glaive", name = "Glaive Thrower", color = Color(0xFFB6E63A),
+            cost = 85, role = "Pierces", shot = ShotKind.GLAIVE,
+            damage = 18f, range = 22f, fireRateMs = 1000,
+            targeting = TargetPriority.FIRST, pierce = 3,
+            upgrades = listOf(
+                UpgradeTier("Serrated Edge", "+50% damage", 90, damageMult = 1.5f),
+                UpgradeTier("Whirlwind", "Cuts through three more, throws faster", 150, extraChains = 3, reloadMult = 0.8f)
+            ),
+            description = "Throws a blade that cuts through every unit in a line."
+        ),
+        TroopType(
+            id = "crossbow", name = "Crossbow", color = Color(0xFFC08A52),
+            cost = 80, role = "Crits", shot = ShotKind.DART,
+            damage = 30f, range = 30f, fireRateMs = 1200,
+            targeting = TargetPriority.FIRST, critChance = 0.25f, critMultiplier = 3f,
+            upgrades = listOf(
+                UpgradeTier("Heavy Bolts", "+50% damage", 90, damageMult = 1.5f),
+                UpgradeTier("Deadeye", "Crits far more often, longer reach", 160, effectMult = 1.8f, rangeMult = 1.15f)
+            ),
+            description = "Long, hard-hitting bolts. One in four hits for triple damage."
+        ),
+        TroopType(
+            id = "hex", name = "Hex Totem", color = Color(0xFF8A63D2),
+            cost = 70, role = "Weakens", shot = ShotKind.ORB,
+            damage = 6f, range = 20f, fireRateMs = 900,
+            targeting = TargetPriority.STRONGEST, vulnerabilityPct = 25f, vulnerabilityMs = 3000,
+            upgrades = listOf(
+                UpgradeTier("Deeper Curse", "Cursed units take more damage", 80, effectMult = 1.4f),
+                UpgradeTier("Doom", "Stronger curse, two targets at once", 140, effectMult = 1.3f, extraShots = 1)
+            ),
+            description = "Curses a unit so every other tower hurts it more."
+        ),
+        TroopType(
+            id = "gust", name = "Gust Fan", color = Color(0xFFBFE3FF),
+            cost = 75, role = "Pushes back", shot = ShotKind.GUST_PULSE,
+            damage = 3f, range = 15f, fireRateMs = 2200,
+            targeting = TargetPriority.CLOSEST, knockback = 5f,
+            upgrades = listOf(
+                UpgradeTier("Gale", "Stronger push, wider gust", 85, effectMult = 1.4f, rangeMult = 1.15f),
+                UpgradeTier("Hurricane", "Gusts more often and stings", 140, damageMult = 4f, reloadMult = 0.75f)
+            ),
+            description = "Blows every unit in range back down the track. Heavy units barely budge."
+        ),
+        TroopType(
+            id = "bounty", name = "Bounty Hunter", color = Color(0xFF2FA4A9),
+            cost = 65, role = "Extra gold", shot = ShotKind.BULLET,
+            damage = 11f, range = 20f, fireRateMs = 600,
+            targeting = TargetPriority.FIRST, bountyBonusPct = 60f,
+            upgrades = listOf(
+                UpgradeTier("Marked Bills", "+50% damage, bigger bounties", 75, damageMult = 1.5f, effectMult = 1.4f),
+                UpgradeTier("Jackpot", "Bigger bounties again, fires faster", 130, effectMult = 1.5f, reloadMult = 0.8f)
+            ),
+            description = "A modest gun whose kills pay 60% more gold."
+        ),
+        TroopType(
+            id = "reaper", name = "Reaper", color = Color(0xFF9C4A6E),
+            cost = 100, role = "Executes", shot = ShotKind.RAIL,
+            damage = 26f, range = 18f, fireRateMs = 900,
+            targeting = TargetPriority.FIRST, executeBelowPct = 12f,
+            upgrades = listOf(
+                UpgradeTier("Keen Edge", "+50% damage", 110, damageMult = 1.5f),
+                UpgradeTier("Grim Harvest", "Finishes units off much sooner, longer reach", 170, effectMult = 1.8f, rangeMult = 1.2f)
+            ),
+            description = "Hits hard up close and finishes off anything nearly dead."
         )
     )
 
     // ---------------------------------------------------------------------
-    // UNITS — the shared offense roster, also used by the natural waves.
+    // UNITS — everything that can walk a lane. Each match uses a roster of ROSTER_SIZE of them.
     // ---------------------------------------------------------------------
     val ENEMY_SENDS: List<EnemySendType> = listOf(
         EnemySendType(
@@ -194,6 +303,13 @@ object GameData {
             description = "Five tiny units at once. Overwhelms single-target towers."
         ),
         EnemySendType(
+            id = "drummer", name = "Drummer", color = Color(0xFFE0744F),
+            cost = 60, maxHp = 60f, speed = 9f, livesDamage = 2, bountyGold = 8, radius = 2.1f,
+            hasteAuraPct = 35f, hasteRadius = 12f,
+            incomeBonus = 0.45f, unlockRound = 3, cooldownMs = 1000,
+            description = "Everyone marching near it moves 35% faster."
+        ),
+        EnemySendType(
             id = "flyer", name = "Flyer", color = Color(0xFF5CD6F0),
             cost = 55, maxHp = 35f, speed = 12f, livesDamage = 2, bountyGold = 8, radius = 1.9f,
             flying = true, damageResistancePct = 50f,
@@ -207,11 +323,25 @@ object GameData {
             description = "A slow wall of health. Needs sustained fire."
         ),
         EnemySendType(
+            id = "phantom", name = "Phantom", color = Color(0xFFCDBEFF),
+            cost = 70, maxHp = 60f, speed = 10f, livesDamage = 2, bountyGold = 9, radius = 2.1f,
+            phaseMs = 1200, phaseEveryMs = 3000,
+            incomeBonus = 0.50f, unlockRound = 4, cooldownMs = 900,
+            description = "Fades out of reach for a moment every few seconds."
+        ),
+        EnemySendType(
             id = "healer", name = "Healer", color = Color(0xFF6BCB5A),
             cost = 65, maxHp = 55f, speed = 8f, livesDamage = 2, bountyGold = 9, radius = 2.1f,
             healPerSecond = 10f, healRadius = 12f,
             incomeBonus = 0.50f, unlockRound = 4, cooldownMs = 1000,
             description = "Heals itself and everyone walking near it."
+        ),
+        EnemySendType(
+            id = "bulwark", name = "Bulwark", color = Color(0xFF4F86C6),
+            cost = 75, maxHp = 110f, speed = 7f, livesDamage = 3, bountyGold = 10, radius = 2.6f,
+            armor = 4f,
+            incomeBonus = 0.55f, unlockRound = 4, cooldownMs = 1000,
+            description = "Armour takes 4 off every hit. Rapid fire bounces, big hits do not."
         ),
         EnemySendType(
             id = "splitter", name = "Splitter", color = Color(0xFFB36BE8),
@@ -221,10 +351,31 @@ object GameData {
             description = "Bursts into three fast Splitlings when popped."
         ),
         EnemySendType(
+            id = "troll", name = "Troll", color = Color(0xFF8FAE4E),
+            cost = 85, maxHp = 150f, speed = 6.5f, livesDamage = 4, bountyGold = 12, radius = 2.8f,
+            regenPerSecond = 14f,
+            incomeBonus = 0.55f, unlockRound = 5, cooldownMs = 1100,
+            description = "Heals fast the moment the shooting stops."
+        ),
+        EnemySendType(
+            id = "brood", name = "Brood Mother", color = Color(0xFFE8A13C),
+            cost = 95, maxHp = 110f, speed = 6f, livesDamage = 3, bountyGold = 8, radius = 2.9f,
+            spawnOnDeathId = "swarm", spawnOnDeathCount = 6,
+            incomeBonus = 0.60f, unlockRound = 6, cooldownMs = 1300,
+            description = "Pops into six Swarm units."
+        ),
+        EnemySendType(
             id = "boss", name = "Boss", color = Color(0xFFE8504A),
             cost = 220, maxHp = 950f, speed = 4.2f, livesDamage = 20, bountyGold = 45, radius = 4.3f,
             incomeBonus = 0f, unlockRound = 7, cooldownMs = 6000,
             description = "Pure pressure, no income. Costs 20 lives if it gets through."
+        ),
+        EnemySendType(
+            id = "juggernaut", name = "Juggernaut", color = Color(0xFFA83246),
+            cost = 170, maxHp = 520f, speed = 5f, livesDamage = 12, bountyGold = 30, radius = 3.7f,
+            controlImmune = true,
+            incomeBonus = 0.30f, unlockRound = 7, cooldownMs = 4000,
+            description = "Cannot be slowed, stunned or pushed back."
         ),
         EnemySendType(
             id = "splitling", name = "Splitling", color = Color(0xFFD29BF5),
@@ -234,31 +385,31 @@ object GameData {
         )
     )
 
-    val SENDABLE_UNITS: List<EnemySendType> = ENEMY_SENDS.filter { it.sendable }
-
     private val unitsById: Map<String, EnemySendType> = ENEMY_SENDS.associateBy { it.id }
     fun unit(id: String): EnemySendType = unitsById.getValue(id)
 
-    // ---------------------------------------------------------------------
-    // WAVES — one entry per round. Shorter matches skip entries so they still reach the late ones.
-    // ---------------------------------------------------------------------
-    val WAVES: List<List<WaveGroup>> = listOf(
-        listOf(WaveGroup("runner", 5, 750)),
-        listOf(WaveGroup("grunt", 4, 950)),
-        listOf(WaveGroup("runner", 8, 450), WaveGroup("grunt", 3, 950, 2500)),
-        listOf(WaveGroup("swarm", 12, 260), WaveGroup("grunt", 4, 850, 2200)),
-        listOf(WaveGroup("tank", 1, 0), WaveGroup("grunt", 6, 700, 1500)),
-        listOf(WaveGroup("flyer", 5, 800), WaveGroup("runner", 8, 350, 3000)),
-        listOf(WaveGroup("grunt", 8, 600), WaveGroup("healer", 2, 2400, 1200)),
-        listOf(WaveGroup("splitter", 3, 1500), WaveGroup("swarm", 14, 220, 3000)),
-        listOf(WaveGroup("tank", 3, 2200), WaveGroup("healer", 2, 2600, 1500), WaveGroup("flyer", 4, 700, 5000)),
-        listOf(WaveGroup("boss", 1, 0), WaveGroup("grunt", 8, 500, 2000)),
-        listOf(WaveGroup("swarm", 24, 180), WaveGroup("flyer", 8, 500, 2500), WaveGroup("splitter", 3, 1200, 5000)),
-        listOf(WaveGroup("boss", 2, 5000), WaveGroup("tank", 4, 1800, 1500), WaveGroup("healer", 3, 2000, 3000))
-    )
+    // Every roster has the two basic units and one finisher; the rest is drawn from the pool.
+    private val ROSTER_CORE = listOf("runner", "grunt")
+    private val ROSTER_FINISHERS = listOf("boss", "juggernaut")
+    private val ROSTER_POOL: List<EnemySendType> = ENEMY_SENDS.filter {
+        it.sendable && it.id !in ROSTER_CORE && it.id !in ROSTER_FINISHERS
+    }
+
+    /** The original eight, for a match that does not roll its own. */
+    val CLASSIC_ROSTER: List<EnemySendType> =
+        listOf("runner", "grunt", "swarm", "flyer", "tank", "healer", "splitter", "boss").map(::unit)
+
+    /** The units both sides can send, and the waves are built from, for one match. */
+    fun randomRoster(rng: Random = Random.Default): List<EnemySendType> {
+        val picked = ROSTER_CORE.map(::unit) +
+            ROSTER_POOL.shuffled(rng).take(ROSTER_SIZE - ROSTER_CORE.size - 1) +
+            unit(ROSTER_FINISHERS.random(rng))
+        return picked.sortedWith(compareBy<EnemySendType> { it.unlockRound }.thenBy { it.cost })
+    }
 
     // ---------------------------------------------------------------------
     // MAPS — control points in the 100 x 62 lane space. Paths enter off the left edge.
+    // Half of all matches use one of these; the other half a generated one (see MapGenerator).
     // ---------------------------------------------------------------------
     val MAPS: List<MapDef> = listOf(
         MapDef(
@@ -288,11 +439,25 @@ object GameData {
                 -8f to 49f, 14f to 49f, 34f to 46f, 49f to 34f, 47f to 18f, 36f to 12f,
                 26f to 20f, 30f to 34f, 46f to 43f, 64f to 45f, 78f to 37f, 84f to 23f, 91f to 14f
             )
+        ),
+        MapDef(
+            id = "swamp", name = "Bog Hook", theme = MapTheme.SWAMP,
+            pathPoints = listOf(
+                -8f to 30f, 12f to 30f, 24f to 16f, 40f to 11f, 56f to 17f, 62f to 31f,
+                54f to 45f, 38f to 50f, 30f to 42f, 36f to 32f, 50f to 31f, 70f to 48f, 91f to 48f
+            )
+        ),
+        MapDef(
+            id = "autumn", name = "Maple Run", theme = MapTheme.AUTUMN,
+            pathPoints = listOf(
+                -8f to 50f, 14f to 50f, 24f to 40f, 22f to 22f, 32f to 11f, 46f to 14f, 50f to 30f,
+                46f to 46f, 58f to 52f, 72f to 46f, 74f to 28f, 82f to 14f, 91f to 20f
+            )
         )
     )
 
     // ---------------------------------------------------------------------
-    // MODIFIERS — one is rolled at random per match.
+    // RULES — one is rolled per match, sometimes two.
     // ---------------------------------------------------------------------
     val MODIFIERS: List<MatchModifier> = listOf(
         MatchModifier(
@@ -321,6 +486,171 @@ object GameData {
             id = "iron_lives", name = "Iron Lives",
             description = "Both sides start with 150 lives, but income is cut 20%.",
             livesOverride = 150, incomeMultiplier = 0.8f
+        ),
+        MatchModifier(
+            id = "bounty_boom", name = "Bounty Boom",
+            description = "Every popped unit pays double.", bountyMultiplier = 2f
+        ),
+        MatchModifier(
+            id = "thick_skin", name = "Thick Skin",
+            description = "Every unit has 35% more health.", unitHpMultiplier = 1.35f
+        ),
+        MatchModifier(
+            id = "war_economy", name = "War Economy",
+            description = "Sending units raises income twice as much.", sendIncomeMultiplier = 2f
+        ),
+        MatchModifier(
+            id = "quick_march", name = "Quick March",
+            description = "A wave comes every 15 seconds instead of 20.", roundIntervalSec = 15
+        ),
+        MatchModifier(
+            id = "rapid_fire", name = "Rapid Fire",
+            description = "All towers fire 20% faster.", reloadMultiplier = 0.8f
+        ),
+        MatchModifier(
+            id = "marathon", name = "Marathon",
+            description = "A 6-minute match before sudden death.", matchDurationOverrideSec = 360
+        ),
+        MatchModifier(
+            id = "mirror", name = "Mirror Match",
+            description = "Your rival is offered the same towers you are.", mirrorDraft = true
+        )
+    )
+
+    /** A match with no rule at all: headless runs and the menu's demo. */
+    val NO_RULE = MatchModifier(id = "none", name = "No rule", description = "")
+
+    /** One rule, or now and then two that do not contradict each other. */
+    fun randomRules(rng: Random = Random.Default): List<MatchModifier> {
+        val first = MODIFIERS.random(rng)
+        if (rng.nextFloat() >= SECOND_RULE_CHANCE) return listOf(first)
+        val second = MODIFIERS.filter { it.compatibleWith(first) }.random(rng)
+        return listOf(first, second)
+    }
+
+    // ---------------------------------------------------------------------
+    // RIVALS — who the AI is this match. The personality decides how it plays.
+    // ---------------------------------------------------------------------
+    val RIVALS: List<Rival> = listOf(
+        Rival(
+            "dash", "Sgt. Dash", AiPersonality.RUSHER, "runner",
+            RivalLines(
+                start = listOf("No time to build. Go, go, go!", "Hope you placed something already."),
+                push = listOf("Incoming! Hope you are awake!", "Faster than you can count them."),
+                hurt = listOf("Ow! Lucky shot.", "That one slipped past me."),
+                gloat = listOf("Too slow!", "Blink and they are through."),
+                win = "Outrun again.", lose = "I... need to catch my breath."
+            )
+        ),
+        Rival(
+            "mossback", "Old Mossback", AiPersonality.TURTLE, "troll",
+            RivalLines(
+                start = listOf("Take your time. I will.", "Walls first. Then we talk."),
+                push = listOf("Now. All of it.", "I saved these for you."),
+                hurt = listOf("A scratch on the shell.", "Hm. Noted."),
+                gloat = listOf("Walls win wars.", "Slow and steady."),
+                win = "Patience pays.", lose = "Hm. A crack after all."
+            )
+        ),
+        Rival(
+            "penny", "Penny Vault", AiPersonality.TYCOON, "healer",
+            RivalLines(
+                start = listOf("Every send is an investment.", "Let us see who is richer in a minute."),
+                push = listOf("Paid in full.", "I can afford this. Can you?"),
+                hurt = listOf("An acceptable loss.", "That will come out of your share."),
+                gloat = listOf("Compound interest.", "Money talks."),
+                win = "A profitable match.", lose = "The market turned on me."
+            )
+        ),
+        Rival(
+            "even", "The Even Hand", AiPersonality.BALANCED, "grunt",
+            RivalLines(
+                start = listOf("Show me how you play.", "I will match whatever you do."),
+                push = listOf("Your move was noted. Here is mine.", "Balance must be kept."),
+                hurt = listOf("Well played.", "I will adjust."),
+                gloat = listOf("You left a gap.", "As expected."),
+                win = "A fair result.", lose = "You tipped the scales."
+            )
+        ),
+        Rival(
+            "buzz", "Queen Buzz", AiPersonality.SWARMER, "swarm",
+            RivalLines(
+                start = listOf("One of us is many.", "Count them. I dare you."),
+                push = listOf("Swarm!", "There are always more."),
+                hurt = listOf("Just a few of us.", "Bzz. Rude."),
+                gloat = listOf("Too many for you?", "The hive is pleased."),
+                win = "The hive wins.", lose = "We will be back. All of us."
+            )
+        ),
+        Rival(
+            "bulk", "Baron Bulk", AiPersonality.BRUISER, "tank",
+            RivalLines(
+                start = listOf("I only bring the big ones.", "Small units are beneath me."),
+                push = listOf("Make way.", "Try stopping this."),
+                hurt = listOf("Barely felt it.", "Hmph."),
+                gloat = listOf("Heavy is good.", "Crushed."),
+                win = "Flattened.", lose = "Even mountains fall, I suppose."
+            )
+        ),
+        Rival(
+            "seven", "Lucky Seven", AiPersonality.GAMBLER, "splitter",
+            RivalLines(
+                start = listOf("Feeling lucky?", "I have not decided what to do. Fun, no?"),
+                push = listOf("All in!", "Let it ride!"),
+                hurt = listOf("Bad roll.", "The dice owe me one."),
+                gloat = listOf("Jackpot!", "Told you I was lucky."),
+                win = "The house wins.", lose = "Double or nothing?"
+            )
+        ),
+        Rival(
+            "misty", "Misty", AiPersonality.TRICKSTER, "phantom",
+            RivalLines(
+                start = listOf("Watch closely.", "Nothing up my sleeve."),
+                push = listOf("Look over here.", "Now you see them."),
+                hurt = listOf("That was the decoy.", "Clever. Annoying, but clever."),
+                gloat = listOf("Now you do not.", "You watched the wrong hand."),
+                win = "Ta-da.", lose = "You saw through it."
+            )
+        ),
+        Rival(
+            "gale", "Captain Gale", AiPersonality.RUSHER, "flyer",
+            RivalLines(
+                start = listOf("Clear skies. Good day for a raid.", "Look up."),
+                push = listOf("Squadron, dive!", "Coming in fast."),
+                hurt = listOf("Turbulence.", "We lost a wing."),
+                gloat = listOf("Right over your head.", "No flak? Lovely."),
+                win = "Mission complete.", lose = "Grounded. For now."
+            )
+        ),
+        Rival(
+            "crimson", "King Crimson", AiPersonality.BRUISER, "boss",
+            RivalLines(
+                start = listOf("Kneel now and save us both the time.", "A king does not hurry."),
+                push = listOf("The crown marches.", "Bow."),
+                hurt = listOf("You dare?", "Insolence."),
+                gloat = listOf("As it should be.", "Your keep looks tired."),
+                win = "Long live me.", lose = "This is not abdication. It is a pause."
+            )
+        ),
+        Rival(
+            "ledger", "Madame Ledger", AiPersonality.TYCOON, "drummer",
+            RivalLines(
+                start = listOf("I keep the beat and the books.", "Tempo is everything."),
+                push = listOf("And... march.", "On my count."),
+                hurt = listOf("Off beat.", "A wrong note."),
+                gloat = listOf("Right on time.", "You are behind the beat."),
+                win = "Perfect rhythm.", lose = "The band plays on without me."
+            )
+        ),
+        Rival(
+            "shell", "Sir Shellby", AiPersonality.TURTLE, "bulwark",
+            RivalLines(
+                start = listOf("Shields up.", "Come and knock."),
+                push = listOf("Advance behind the shields.", "Hold the line. Forward."),
+                hurt = listOf("A dent.", "The line bends."),
+                gloat = listOf("Nothing gets through.", "Your shots bounce."),
+                win = "The line held.", lose = "Outflanked."
+            )
         )
     )
 
@@ -331,14 +661,11 @@ object GameData {
      * Deals [count] towers, rerolling hands with too few real damage dealers so every draft can
      * hold a lane. A full offer needs two, so that which dealer to take is still a choice.
      */
-    fun randomDraft(count: Int = DRAFT_OFFER): List<TroopType> {
+    fun randomDraft(count: Int = DRAFT_OFFER, rng: Random = Random.Default): List<TroopType> {
         val dealersNeeded = if (count > DRAFT_PICKS) 2 else 1
         while (true) {
-            val draft = TROOPS.shuffled().take(count)
+            val draft = TROOPS.shuffled(rng).take(count)
             if (draft.count { it.baseDps >= MIN_DRAFT_DPS } >= dealersNeeded) return draft
         }
     }
-    fun randomMap(): MapDef = MAPS.random()
-    fun randomModifier(): MatchModifier = MODIFIERS.random()
-    fun randomPersonality(): AiPersonality = AiPersonality.entries.toTypedArray().random()
 }

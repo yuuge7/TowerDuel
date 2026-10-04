@@ -16,9 +16,11 @@ import com.towerduel.game.data.EnemySendType
 import com.towerduel.game.data.GameData
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.MatchModifier
+import com.towerduel.game.data.Rival
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.AiController
 import com.towerduel.game.engine.GameEngine
+import com.towerduel.game.engine.MapGenerator
 import com.towerduel.game.engine.MatchOutcome
 import com.towerduel.game.engine.PlaceResult
 import com.towerduel.game.engine.SendResult
@@ -46,6 +48,12 @@ private const val STEP_SECONDS = 1f / 60f
 private const val MAX_STEPS_PER_FRAME = 8
 private const val TOWER_TAP_RADIUS = 4.5f
 
+// The rival's chatter, in match time.
+private const val RIVAL_GREETING_MS = 1200f
+private const val RIVAL_LINE_MS = 3400f
+private const val RIVAL_QUIET_MS = 11_000f
+private const val RIVAL_TALK_LIVES = 8
+
 /** Stable for Compose: everything a screen reads from it is snapshot state. */
 @Stable
 class GameViewModel(app: Application) : AndroidViewModel(app) {
@@ -69,8 +77,24 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var modifier by mutableStateOf<MatchModifier>(GameData.MODIFIERS.first())
         private set
-    var aiPersonality by mutableStateOf(AiPersonality.BALANCED)
+    /** The rules in force: one, sometimes two. [modifier] is all of them folded into one. */
+    var rules by mutableStateOf<List<MatchModifier>>(emptyList())
         private set
+    var rival by mutableStateOf<Rival>(GameData.RIVALS.first())
+        private set
+    var roster by mutableStateOf<List<EnemySendType>>(GameData.CLASSIC_ROSTER)
+        private set
+    val aiPersonality: AiPersonality get() = rival.personality
+
+    /** What the rival is saying right now, if anything. */
+    var rivalLine by mutableStateOf<String?>(null)
+        private set
+    private var rivalLineUntilMs = 0f
+    private var lastChatterAtMs = -100_000f
+    private var rivalGreeted = false
+    private var rivalPushed = false
+    private var rivalLivesHeard = 0
+    private var playerLivesHeard = 0
 
     /** False until a match has been rolled, e.g. after the process was killed and restored. */
     val hasMatchSetup: Boolean get() = offeredTroops.isNotEmpty()
@@ -123,10 +147,12 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         profile.rememberDifficulty(difficulty)
         offeredTroops = GameData.randomDraft()
         pickedTroops = emptyList()
-        aiDraft = AiController.pickDraft(GameData.randomDraft(), difficulty)
-        map = GameData.randomMap()
-        modifier = GameData.randomModifier()
-        aiPersonality = GameData.randomPersonality()
+        rules = GameData.randomRules()
+        modifier = rules.reduce { all, rule -> all + rule }
+        rival = GameData.RIVALS.random()
+        roster = GameData.randomRoster()
+        map = MapGenerator.randomMap()
+        aiDraft = AiController.pickDraft(if (modifier.mirrorDraft) offeredTroops else GameData.randomDraft(), difficulty)
     }
 
     fun toggleDraftPick(troop: TroopType) {
@@ -145,8 +171,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (draftProblem != null) return
         // Keep the build bar in the order the towers were offered, not the order they were tapped.
         pickedTroops = offeredTroops.filter { it in pickedTroops }
-        engine = GameEngine(map, modifier, pickedTroops, aiDraft)
-        aiController = AiController(aiPersonality, selectedDifficulty)
+        val eng = GameEngine(map, modifier, pickedTroops, aiDraft, roster)
+        engine = eng
+        aiController = AiController(rival.personality, selectedDifficulty)
+        rivalLine = null
+        rivalGreeted = false
+        rivalPushed = false
+        lastChatterAtMs = -100_000f
+        rivalLivesHeard = eng.startingLives
+        playerLivesHeard = eng.startingLives
         armedTroop = null
         selectedTowerId = null
         ghost = null
@@ -177,6 +210,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (steps == MAX_STEPS_PER_FRAME) accumulator = 0f
 
         playCues(eng)
+        rivalChatter(eng)
         if (eng.outcome != MatchOutcome.ONGOING && !resultRecorded) {
             resultRecorded = true
             val mine = eng.playerField
@@ -191,7 +225,8 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                     unitsSent = mine.stats.unitsSent,
                     goldEarned = mine.stats.goldEarned.toInt(),
                     towersBuilt = mine.stats.towersBuilt,
-                    livesLost = (eng.startingLives - mine.lives).coerceAtLeast(0)
+                    livesLost = (eng.startingLives - mine.lives).coerceAtLeast(0),
+                    rivalId = rival.id
                 )
             )
             ghost = null
@@ -199,8 +234,38 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         frame++
     }
 
+    /**
+     * Gives the rival a voice: a greeting, a boast when it pushes, a wince or a gloat when lives
+     * drop. Spaced out, so it comments on the match instead of narrating it.
+     */
+    private fun rivalChatter(eng: GameEngine) {
+        val now = eng.elapsedMs
+        if (rivalLine != null && now > rivalLineUntilMs) rivalLine = null
+        val lines = rival.lines
+        val say: String? = when {
+            !rivalGreeted && now > RIVAL_GREETING_MS -> {
+                rivalGreeted = true
+                lines.start.random()
+            }
+            now - lastChatterAtMs < RIVAL_QUIET_MS -> null
+            rivalPushed -> lines.push.random()
+            rivalLivesHeard - eng.aiField.lives >= RIVAL_TALK_LIVES -> lines.hurt.random()
+            playerLivesHeard - eng.playerField.lives >= RIVAL_TALK_LIVES -> lines.gloat.random()
+            else -> null
+        }
+        if (say != null) {
+            rivalLine = say
+            rivalLineUntilMs = now + RIVAL_LINE_MS
+            lastChatterAtMs = now
+            rivalPushed = false
+            rivalLivesHeard = eng.aiField.lives
+            playerLivesHeard = eng.playerField.lives
+        }
+    }
+
     private fun playCues(eng: GameEngine) {
         for (event in eng.cues) {
+            if (event.cue == SoundCue.WARNING && event.field === eng.playerField) rivalPushed = true
             when {
                 event.field == null || event.field === eng.playerField -> sound.play(event.cue)
                 // From the opponent's lane the player only needs to hear their own sends landing.

@@ -72,6 +72,18 @@ class LifetimeStatsTest {
     }
 
     @Test
+    fun aRivalIsBeatenOnlyByWinning() {
+        fun against(rival: String, outcome: MatchOutcome) =
+            MatchRecord(outcome, Difficulty.MEDIUM, listOf("sentry"), 200, 9, 50, 12, 3000, 6, 20, rivalId = rival)
+        var stats = LifetimeStats()
+        stats += against("dash", MatchOutcome.AI_WIN)
+        stats += against("dash", MatchOutcome.PLAYER_WIN)
+        stats += against("dash", MatchOutcome.PLAYER_WIN)
+        stats += against("misty", MatchOutcome.DRAW)
+        assertEquals(mapOf("dash" to 2), stats.rivalWins)
+    }
+
+    @Test
     fun towerPicksCountMatchesNotTowersBuilt() {
         var stats = LifetimeStats()
         stats += match(MatchOutcome.PLAYER_WIN, towers = listOf("sentry", "bomb", "frost"))

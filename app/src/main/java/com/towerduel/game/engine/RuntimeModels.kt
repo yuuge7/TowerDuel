@@ -1,12 +1,15 @@
 package com.towerduel.game.engine
 
 import com.towerduel.game.data.EnemySendType
+import com.towerduel.game.data.MatchEventType
 import com.towerduel.game.data.ShotKind
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.data.UpgradeTier
 
 private const val MAX_SLOW = 0.8f
 private const val MAX_STUN_CHANCE = 0.9f
+private const val MAX_CRIT_CHANCE = 0.9f
+private const val MAX_EXECUTE = 0.4f
 
 class TowerInstance(
     val instanceId: Long,
@@ -48,6 +51,17 @@ class TowerInstance(
     var income = type.incomeBonusPerSecond; private set
     var auraPct = type.auraDamageBonusPct; private set
     var auraRange = type.auraRange; private set
+    var pierce = type.pierce; private set
+    var critChance = type.critChance; private set
+    var rampMax = type.rampMax; private set
+    var vulnerability = type.vulnerabilityPct / 100f; private set
+    var knockback = type.knockback; private set
+    var executeBelow = type.executeBelowPct / 100f; private set
+    var bountyBonus = type.bountyBonusPct / 100f; private set
+
+    // A beam ramps up while it stays on one unit and starts over on the next.
+    var rampTarget: EnemyUnit? = null
+    var rampBonus = 0f
 
     val nextUpgrade: UpgradeTier? get() = type.upgrades.getOrNull(level)
 
@@ -59,8 +73,14 @@ class TowerInstance(
         damage *= tier.damageMult
         reloadMs *= tier.reloadMult
         splashRadius *= tier.splashMult
-        chains += tier.extraChains
+        if (type.pierce > 0) pierce += tier.extraChains else chains += tier.extraChains
         shots += tier.extraShots
+        critChance = (critChance * tier.effectMult).coerceAtMost(MAX_CRIT_CHANCE)
+        rampMax *= tier.effectMult
+        vulnerability *= tier.effectMult
+        knockback *= tier.effectMult
+        executeBelow = (executeBelow * tier.effectMult).coerceAtMost(MAX_EXECUTE)
+        bountyBonus *= tier.effectMult
         slow = (slow * tier.effectMult).coerceAtMost(MAX_SLOW)
         stunChance = (stunChance * tier.effectMult).coerceAtMost(MAX_STUN_CHANCE)
         dotDps *= tier.effectMult
@@ -79,7 +99,8 @@ class EnemyUnit(
     /** Sideways offset from the middle of the track, so a pack does not walk as one stacked dot. */
     val laneOffset: Float,
     /** Sudden-death waves walk faster than the unit's listed speed. */
-    val speedScale: Float = 1f
+    val speedScale: Float = 1f,
+    val bornAtMs: Float = 0f
 ) {
     var hp = maxHp
     var alive = true
@@ -101,6 +122,14 @@ class EnemyUnit(
     var dotExpiresAtMs = 0f
     var dotSource: TowerInstance? = null
     var lastHitAtMs = -100_000f
+
+    /** Extra damage taken (as a fraction) while cursed, and until when. */
+    var vulnerability = 0f
+    var vulnerableUntilMs = 0f
+
+    /** Speed bonus (as a fraction) from a Drummer nearby, and until when. */
+    var haste = 0f
+    var hasteUntilMs = 0f
 }
 
 /** A wave or send unit waiting for its turn to step onto the lane. */
@@ -130,11 +159,16 @@ class Projectile(
     var ageMs = 0f
     var angle = 0f
     var done = false
+
+    // Glaives only: how many more units it can cut, how far it may still fly, and who it already hit.
+    var cutsLeft = 0
+    var travelLeft = 0f
+    val struck = ArrayList<EnemyUnit>(0)
 }
 
 enum class FxKind {
-    POP, HIT, EXPLOSION, BOLT, TRACER, FROST_RING, POISON_CLOUD,
-    GOLD_TEXT, LIFE_TEXT, DUST, SPARKLE, HEAL
+    POP, HIT, EXPLOSION, BOLT, TRACER, BEAM, FLAME, FROST_RING, POISON_CLOUD, GUST_RING,
+    GOLD_TEXT, LIFE_TEXT, CRIT, EXECUTE, DUST, SPARKLE, HEAL, HASTE
 }
 
 /** A short-lived visual; carries no gameplay effect. Positions and [size] are in lane units. */
@@ -157,7 +191,7 @@ class FxEvent(
 
 enum class SoundCue {
     SHOOT, SHOOT_HEAVY, ZAP, FREEZE, POP, POP_BIG, BOOM, COIN, LEAK, PLACE, UPGRADE, SELL, SEND,
-    ROUND, WARNING, WIN, LOSE, CLICK, DENIED
+    ROUND, WARNING, EVENT, WIN, LOSE, CLICK, DENIED
 }
 
 /** A sound the engine wants played; [field] is the lane it happened on, or null for match-wide cues. */
@@ -173,6 +207,9 @@ class MatchStats {
 
 /** A big send announced to the lane it is about to hit. */
 class LaneWarning(val unit: EnemySendType, val atMs: Float)
+
+/** A random event: when it struck, and when its effect wears off (the same moment for a one-off). */
+class ActiveEvent(val type: MatchEventType, val startedAtMs: Float, val endsAtMs: Float)
 
 /**
  * One side's battlefield: the towers defending it, and the enemies currently

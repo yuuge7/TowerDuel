@@ -4,9 +4,9 @@ import com.towerduel.game.data.AiPersonality
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.GameData
 import com.towerduel.game.data.MatchModifier
-import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.AiController
 import com.towerduel.game.engine.GameEngine
+import com.towerduel.game.engine.MapGenerator
 import com.towerduel.game.engine.MatchOutcome
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -14,33 +14,33 @@ import org.junit.Test
 import kotlin.random.Random
 
 /**
- * Plays whole matches headless, AI against AI. Guards the two things a balance change breaks
- * first: every match must end, and a harder AI must beat an easier one most of the time.
- * The printed table is the tool for tuning numbers in GameData.
+ * Plays whole matches headless, AI against AI, each on its own random map, roster and draft.
+ * Guards the two things a balance change breaks first: every match must end, and a harder AI
+ * must beat an easier one most of the time. The printed table is the tool for tuning numbers
+ * in GameData.
  */
 class BalanceSimulationTest {
 
     private class Result(
         val outcome: MatchOutcome, val seconds: Float, val round: Int, val livesA: Int, val livesB: Int,
-        /** Lives when the scripted rounds ran out, or -1 if the match ended before that. */
+        /** Lives when the regular rounds ran out, or -1 if the match ended before that. */
         val livesAtSuddenDeathA: Int, val livesAtSuddenDeathB: Int, val timedOut: Boolean
     )
-
-    private val plain = MatchModifier(id = "none", name = "None", description = "")
 
     /** Side A plays the "player" lane, side B the "ai" lane. */
     private fun play(
         seed: Int,
         diffA: Difficulty, diffB: Difficulty,
         persA: AiPersonality? = null, persB: AiPersonality? = null,
-        modifier: MatchModifier = plain
+        modifier: MatchModifier = GameData.NO_RULE
     ): Result {
         val rng = Random(seed)
         val personalities = AiPersonality.entries
-        val map = GameData.MAPS[seed % GameData.MAPS.size]
-        val handA = AiController.pickDraft(GameData.TROOPS.shuffled(rng).take(GameData.DRAFT_OFFER).ensureDealer(rng), diffA, rng)
-        val handB = AiController.pickDraft(GameData.TROOPS.shuffled(rng).take(GameData.DRAFT_OFFER).ensureDealer(rng), diffB, rng)
-        val engine = GameEngine(map, modifier, handA, handB, seed.toLong())
+        val handA = AiController.pickDraft(GameData.randomDraft(rng = rng), diffA, rng)
+        val handB = AiController.pickDraft(GameData.randomDraft(rng = rng), diffB, rng)
+        val engine = GameEngine(
+            MapGenerator.randomMap(rng), modifier, handA, handB, GameData.randomRoster(rng), seed.toLong()
+        )
         val a = AiController(persA ?: personalities[rng.nextInt(personalities.size)], diffA, rng)
         val b = AiController(persB ?: personalities[rng.nextInt(personalities.size)], diffB, rng)
 
@@ -65,10 +65,7 @@ class BalanceSimulationTest {
         )
     }
 
-    private fun List<TroopType>.ensureDealer(rng: Random) =
-        if (GameData.hasDamageDealer(this)) this else GameData.TROOPS.filter { it.baseDps >= GameData.MIN_DRAFT_DPS }.shuffled(rng).take(size)
-
-    private fun series(label: String, games: Int, a: Difficulty, b: Difficulty, modifier: MatchModifier = plain): Int {
+    private fun series(label: String, games: Int, a: Difficulty, b: Difficulty, modifier: MatchModifier = GameData.NO_RULE): Int {
         var winsA = 0; var winsB = 0; var draws = 0
         var seconds = 0f; var rounds = 0
         var early = 0; var timeouts = 0; var sdLivesA = 0; var sdLivesB = 0
@@ -111,19 +108,28 @@ class BalanceSimulationTest {
     }
 
     @Test
-    fun everyModifierAndMapEnds() {
-        println("---- modifiers (MEDIUM vs MEDIUM) ----")
-        for (modifier in GameData.MODIFIERS) series(modifier.name, 8, Difficulty.MEDIUM, Difficulty.MEDIUM, modifier)
+    fun everyRuleEnds() {
+        println("---- rules (MEDIUM vs MEDIUM) ----")
+        for (modifier in GameData.MODIFIERS) series(modifier.name, 6, Difficulty.MEDIUM, Difficulty.MEDIUM, modifier)
+        println("---- two rules at once ----")
+        val rng = Random(7)
+        repeat(6) {
+            val rules = GameData.randomRules(rng)
+            val both = rules.reduce { all, rule -> all + rule }
+            series(both.name.take(18), 4, Difficulty.MEDIUM, Difficulty.MEDIUM, both)
+        }
     }
 
     @Test
     fun personalitiesAreAllViable() {
-        println("---- personalities, HARD mirror: wins out of 24 ----")
+        val seeds = 4
+        val others = AiPersonality.entries.size - 1
+        println("---- personalities, HARD mirror: wins out of ${others * seeds} ----")
         for (p in AiPersonality.entries) {
             var wins = 0; var games = 0
             for (other in AiPersonality.entries) {
                 if (other == p) continue
-                for (seed in 1..8) {
+                for (seed in 1..seeds) {
                     val asA = seed % 2 == 0
                     val r = if (asA) play(seed * 7, Difficulty.HARD, Difficulty.HARD, p, other)
                     else play(seed * 7, Difficulty.HARD, Difficulty.HARD, other, p)

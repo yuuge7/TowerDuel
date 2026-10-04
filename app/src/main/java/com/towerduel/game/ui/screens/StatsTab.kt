@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -101,6 +102,7 @@ fun StatsTab(viewModel: GameViewModel, onPlay: () -> Unit, modifier: Modifier = 
             TotalsPanel(stats)
             BestsPanel(stats)
             if (stats.towerPicks.isNotEmpty()) TowerPicksPanel(stats)
+            RivalsPanel(stats)
         }
         // Always there, matches or not: a new phone with no matches is exactly where import is needed.
         BackupPanel(viewModel, canExport = stats.matches > 0)
@@ -363,6 +365,36 @@ private fun TowerPicksPanel(stats: LifetimeStats) {
                     color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.End,
                     modifier = Modifier.width(84.dp)
                 )
+            }
+        }
+    }
+}
+
+/** Every rival there is, with the ones already beaten lit up: something to work through. */
+@Composable
+private fun RivalsPanel(stats: LifetimeStats) {
+    val beaten = GameData.RIVALS.count { (stats.rivalWins[it.id] ?: 0) > 0 }
+    Section("Rivals beaten: $beaten of ${GameData.RIVALS.size}") {
+        for (row in GameData.RIVALS.chunked(3)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (rival in row) {
+                    val wins = stats.rivalWins[rival.id] ?: 0
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        UnitPortrait(GameData.unit(rival.unitId), Modifier.size(30.dp).alpha(if (wins > 0) 1f else 0.3f))
+                        Spacer(Modifier.width(4.dp))
+                        Column {
+                            Text(
+                                rival.name, color = if (wins > 0) Cream else Dim, fontSize = 11.5.sp, lineHeight = 13.sp,
+                                style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                if (wins > 0) "Beaten $wins×" else "Not beaten yet",
+                                color = if (wins > 0) Lilac else Dim, fontSize = 10.5.sp, lineHeight = 12.sp,
+                                style = MaterialTheme.typography.bodyMedium, maxLines = 1
+                            )
+                        }
+                    }
+                }
             }
         }
     }

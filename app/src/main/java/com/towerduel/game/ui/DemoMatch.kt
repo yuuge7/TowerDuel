@@ -6,9 +6,9 @@ import androidx.compose.runtime.setValue
 import com.towerduel.game.data.AiPersonality
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.GameData
-import com.towerduel.game.data.MatchModifier
 import com.towerduel.game.engine.AiController
 import com.towerduel.game.engine.GameEngine
+import com.towerduel.game.engine.MapGenerator
 import com.towerduel.game.engine.MatchOutcome
 
 private const val WARM_UP_SECONDS = 70
@@ -21,13 +21,14 @@ private const val MAX_DEMO_MS = 225_000f
 class DemoMatch private constructor() {
 
     val engine = GameEngine(
-        GameData.randomMap(),
-        MatchModifier(id = "demo", name = "Demo", description = ""),
+        MapGenerator.randomMap(),
+        GameData.NO_RULE,
         AiController.pickDraft(GameData.randomDraft(), Difficulty.HARD),
-        AiController.pickDraft(GameData.randomDraft(), Difficulty.HARD)
+        AiController.pickDraft(GameData.randomDraft(), Difficulty.HARD),
+        GameData.randomRoster()
     )
-    private val left = AiController(AiPersonality.BALANCED, Difficulty.MEDIUM)
-    private val right = AiController(AiPersonality.RUSHER, Difficulty.MEDIUM)
+    private val left = AiController(AiPersonality.entries.random(), Difficulty.MEDIUM)
+    private val right = AiController(AiPersonality.entries.random(), Difficulty.MEDIUM)
 
     private var frame by mutableIntStateOf(0)
     fun observeFrame(): Int = frame

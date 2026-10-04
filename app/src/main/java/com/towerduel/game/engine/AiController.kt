@@ -53,44 +53,33 @@ class AiController(
 
     private val skill = when (difficulty) {
         Difficulty.EASY -> Skill(2300f, 0.30f, 0.6f, 0.1f, reactsToLeaks = false, timesPushes = false, pushScale = 0.7f)
-        Difficulty.MEDIUM -> Skill(1250f, 0.10f, 0.15f, 0.6f, reactsToLeaks = true, timesPushes = false, pushScale = 1f)
+        Difficulty.MEDIUM -> Skill(1500f, 0.18f, 0.3f, 0.45f, reactsToLeaks = true, timesPushes = false, pushScale = 1f)
         Difficulty.HARD -> Skill(650f, 0.02f, 0f, 1f, reactsToLeaks = true, timesPushes = true, pushScale = 1f)
     }
 
-    /** How much more defense than the bare minimum this personality wants before it attacks. */
-    private val safety = when (personality) {
-        AiPersonality.TURTLE -> 1.35f
-        AiPersonality.BALANCED -> 1.05f
-        AiPersonality.TYCOON -> 0.95f
-        AiPersonality.RUSHER -> 0.85f
-    }
+    /** What makes one personality play differently from another. To add a personality, add a row. */
+    private class Style(
+        /** How much more defense than the bare minimum it wants before it attacks. */
+        val safety: Float,
+        /** Chance to attack anyway while the defense is still short. */
+        val recklessness: Float,
+        /** Share of spare gold that goes into cheap income sends while those can still pay back. */
+        val ecoShare: Float,
+        val reserveGold: Float,
+        val maxMines: Int,
+        /** How far past "just enough to break through" it sizes a calculated push. */
+        val ambition: Float
+    )
 
-    /** Chance to attack anyway while the defense is still short. */
-    private val recklessness = when (personality) {
-        AiPersonality.RUSHER -> 0.45f
-        AiPersonality.BALANCED -> 0.2f
-        AiPersonality.TYCOON -> 0.2f
-        AiPersonality.TURTLE -> 0.08f
-    }
-
-    /** Share of spare gold that goes into cheap income sends while those can still pay back. */
-    private val ecoShare = when (personality) {
-        AiPersonality.TYCOON -> 0.8f
-        AiPersonality.BALANCED -> 0.4f
-        AiPersonality.TURTLE -> 0.25f
-        AiPersonality.RUSHER -> 0f
-    }
-
-    private val reserveGold = when (personality) {
-        AiPersonality.TURTLE -> 60f
-        AiPersonality.RUSHER -> 0f
-        else -> 30f
-    }
-
-    private val maxMines = when (personality) {
-        AiPersonality.TYCOON -> 3
-        AiPersonality.RUSHER -> 1
-        else -> 2
+    private val style = when (personality) {
+        AiPersonality.RUSHER -> Style(0.85f, 0.45f, 0f, 0f, 1, 0.8f)
+        AiPersonality.TURTLE -> Style(1.35f, 0.08f, 0.25f, 60f, 2, 1.3f)
+        AiPersonality.BALANCED -> Style(1.05f, 0.2f, 0.4f, 30f, 2, 1f)
+        AiPersonality.TYCOON -> Style(0.95f, 0.2f, 0.8f, 30f, 3, 1.2f)
+        AiPersonality.SWARMER -> Style(0.95f, 0.3f, 0.3f, 20f, 2, 0.9f)
+        AiPersonality.BRUISER -> Style(1.1f, 0.15f, 0.3f, 40f, 2, 1.2f)
+        AiPersonality.GAMBLER -> Style(0.8f, 0.5f, 0.15f, 0f, 1, 1.4f)
+        AiPersonality.TRICKSTER -> Style(1f, 0.25f, 0.35f, 30f, 2, 1f)
     }
 
     private var thinkTimerMs = 700f + rng.nextFloat() * 600f
@@ -105,11 +94,16 @@ class AiController(
     private var pushBudget = 0f
     private var pushing = false
     private var lastHeavySendAtMs = -100_000f
+    private var lastSent: EnemySendType? = null
+
+    /** The Gambler's unit of the moment; rerolled with every push. */
+    private var fancy: EnemySendType? = null
 
     // What has been walking this lane lately; steers which towers are worth more.
     private var seenFlying = 0f
     private var seenSwarm = 0f
     private var seenHeavy = 0f
+    private var seenArmor = 0f
 
     // Grid of spots that are clear of the track. The track never changes, so this is built once.
     private var gridX = FloatArray(0)
@@ -152,7 +146,7 @@ class AiController(
         when {
             emergency -> defend(engine, own, urgent = true)
             pushing -> continuePush(engine, own, foe)
-            power < need && rng.nextFloat() >= recklessness * (power / need) -> {
+            power < need && rng.nextFloat() >= style.recklessness * (power / need) -> {
                 // Nothing left to buy means the gold is better spent attacking.
                 if (!defend(engine, own, urgent = false)) invest(engine, own, foe)
             }
@@ -168,7 +162,9 @@ class AiController(
         seenFlying *= 0.92f
         seenSwarm *= 0.92f
         seenHeavy *= 0.92f
+        seenArmor *= 0.92f
         for (e in own.incomingEnemies) {
+            if (e.type.armor > 0f) seenArmor += 0.5f
             when {
                 e.type.flying -> seenFlying += 0.5f
                 e.maxHp >= 200f -> seenHeavy += 0.5f
@@ -191,7 +187,7 @@ class AiController(
         var hp = maxOf(engine.waveHp(engine.round + 1), walking)
         // A sharp player counts the opponent's purse as a push that has not been sent yet.
         if (skill.timesPushes) hp += foe.gold * 0.8f
-        return hp / EXPOSURE_SEC * safety * (1f + defenseBias)
+        return hp / EXPOSURE_SEC * style.safety * (1f + defenseBias)
     }
 
     private fun lanePower(engine: GameEngine, field: Battlefield): Float {
@@ -201,25 +197,36 @@ class AiController(
     }
 
     private fun towerPower(engine: GameEngine, t: TowerInstance): Float = power(
-        t.type, engine.shotDamage(t), t.shots, t.reloadMs, t.splashRadius, t.chains, t.slow, t.dotDps, t.stunChance,
+        t.type, engine.shotDamage(t), t.shots, engine.reloadMs(t), t.splashRadius, t.chains, t.pierce,
+        t.slow, t.dotDps, t.stunChance, t.critChance, t.rampMax, t.vulnerability, t.knockback, t.executeBelow,
         engine.path.coverage(t.x, t.y, engine.towerReach(t), LaneSpace.WIDTH)
     )
 
-    /** A rough "damage per second this tower is worth", counting splash, chains and control. */
+    /** A rough "damage per second this tower is worth", counting splash, chains, control and the rest. */
     private fun power(
-        type: TroopType, damage: Float, shots: Int, reloadMs: Float, splash: Float, chains: Int,
-        slow: Float, dot: Float, stun: Float, coverage: Float
+        type: TroopType, damage: Float, shots: Int, reloadMs: Float, splash: Float, chains: Int, pierce: Int,
+        slow: Float, dot: Float, stun: Float, crit: Float, rampMax: Float, curse: Float, knockback: Float,
+        execute: Float, coverage: Float
     ): Float {
         if (!type.isAttacker) return 0f
         var dps = damage * shots * 1000f / reloadMs
+        if (crit > 0f) dps *= 1f + crit * (type.critMultiplier - 1f)
+        // A beam is rarely on one unit long enough to reach full strength.
+        if (rampMax > 0f) dps *= 1f + rampMax * 0.4f
+        if (execute > 0f) dps *= 1f + execute
         if (splash > 0f) dps *= 1f + splash / 9f
         if (chains > 0) dps *= 1f + 0.5f * chains
+        if (pierce > 0) dps *= 1f + 0.35f * pierce
         when (type.shot) {
             ShotKind.FROST_PULSE -> dps = dps * PULSE_TARGETS + slow * 45f
             ShotKind.POISON_PULSE -> dps = (dps + dot) * PULSE_TARGETS
-            else -> Unit
+            ShotKind.GUST_PULSE -> dps = dps * PULSE_TARGETS + knockback * 5f
+            // Burn on a tower that also splashes lands on most of what it touches.
+            else -> dps += dot * (if (splash > 0f) 1.5f else 0.5f)
         }
         dps += stun * 14f
+        // A curse is worth what it adds to everybody else's damage; guess at a modest lane.
+        dps += curse * 60f
         // A tower only works while something is in range, so more track covered means more uptime.
         return dps * (coverage / 30f).coerceIn(0.2f, 1.6f)
     }
@@ -267,8 +274,11 @@ class AiController(
                     spot.score * type.auraDamageBonusPct / 100f
                 } else {
                     power(
-                        type, type.damage * engine.modifier.damageMultiplier, 1, type.fireRateMs.toFloat(),
-                        type.splashRadius, type.chainTargets, type.slowFactor, type.dotDamagePerSecond, type.stunChance,
+                        type, type.damage * engine.modifier.damageMultiplier, 1,
+                        type.fireRateMs * engine.modifier.reloadMultiplier,
+                        type.splashRadius, type.chainTargets, type.pierce, type.slowFactor, type.dotDamagePerSecond,
+                        type.stunChance, type.critChance, type.rampMax, type.vulnerabilityPct / 100f, type.knockback,
+                        type.executeBelowPct / 100f,
                         engine.path.coverage(spot.x, spot.y, engine.baseReach(type), LaneSpace.WIDTH)
                     )
                 }
@@ -295,10 +305,14 @@ class AiController(
             }
             return boosted * t.auraPct * (tier.effectMult - 1f) / 100f
         }
+        val pierces = t.type.pierce > 0
         val upgraded = power(
-            t.type, engine.shotDamage(t) * tier.damageMult, t.shots + tier.extraShots, t.reloadMs * tier.reloadMult,
-            t.splashRadius * tier.splashMult, t.chains + tier.extraChains, t.slow * tier.effectMult,
-            t.dotDps * tier.effectMult, t.stunChance * tier.effectMult,
+            t.type, engine.shotDamage(t) * tier.damageMult, t.shots + tier.extraShots,
+            engine.reloadMs(t) * tier.reloadMult, t.splashRadius * tier.splashMult,
+            t.chains + (if (pierces) 0 else tier.extraChains), t.pierce + (if (pierces) tier.extraChains else 0),
+            t.slow * tier.effectMult, t.dotDps * tier.effectMult, t.stunChance * tier.effectMult,
+            t.critChance * tier.effectMult, t.rampMax * tier.effectMult, t.vulnerability * tier.effectMult,
+            t.knockback * tier.effectMult, t.executeBelow * tier.effectMult,
             engine.path.coverage(t.x, t.y, engine.towerReach(t) * tier.rangeMult, LaneSpace.WIDTH)
         )
         return upgraded - current
@@ -309,10 +323,13 @@ class AiController(
         if (rng.nextFloat() >= skill.sharpness) return 0.7f + rng.nextFloat() * 0.6f
         var w = 1f
         if (type.bonusDamageVsFlyerPct > 0f) w *= 0.8f + (seenFlying / 3f).coerceAtMost(1.2f)
-        val hitsMany = type.splashRadius > 0f || type.chainTargets > 0 ||
-            type.shot == ShotKind.FROST_PULSE || type.shot == ShotKind.POISON_PULSE
+        val hitsMany = type.splashRadius > 0f || type.chainTargets > 0 || type.pierce > 0 || type.shot.isPulse
         if (hitsMany) w *= 1f + (seenSwarm / 10f).coerceAtMost(0.6f)
-        if (type.damage >= 40f && type.splashRadius == 0f) w *= 1f + (seenHeavy / 2f).coerceAtMost(0.6f)
+        val hitsHard = type.damage >= 25f && type.splashRadius == 0f
+        if (hitsHard || type.rampMax > 0f) w *= 1f + (seenHeavy / 2f).coerceAtMost(0.6f)
+        // Armour shrugs off small hits and is cut through by big ones.
+        if (type.damage <= 8f && !type.shot.isPulse) w *= 1f - (seenArmor / 6f).coerceAtMost(0.4f)
+        if (hitsHard) w *= 1f + (seenArmor / 6f).coerceAtMost(0.4f)
         return w
     }
 
@@ -407,7 +424,8 @@ class AiController(
 
         val reach = engine.baseReach(type)
         val r2 = reach * reach
-        val pulse = type.shot == ShotKind.FROST_PULSE || type.shot == ShotKind.POISON_PULSE
+        // Slows, poison, curses and knockback are worth most where other towers are already firing.
+        val stacks = type.shot.isPulse || type.vulnerabilityPct > 0f
         val lateFrom = (path.pointCount * 0.55f).toInt()
         var score = 0f
         var i = 0
@@ -417,9 +435,8 @@ class AiController(
                 val dx = px - x
                 val dy = path.ys[i] - y
                 if (dx * dx + dy * dy <= r2) {
-                    // Slows and poison stack with other towers' fire; everything else spreads out
-                    // to track that nobody is covering yet.
-                    var w = if (pulse) 1f + 0.4f * cover[i] else 1f / (1f + 0.6f * cover[i])
+                    // Everything else spreads out to track that nobody is covering yet.
+                    var w = if (stacks) 1f + 0.4f * cover[i] else 1f / (1f + 0.6f * cover[i])
                     if (lateBias && i >= lateFrom) w *= 2f
                     score += w
                 }
@@ -439,7 +456,7 @@ class AiController(
         val ecoWindow = engine.timeRemainingSec() > 60
         if (ecoWindow && buyMine(engine, own)) return
 
-        val spare = own.gold - reserveGold
+        val spare = own.gold - style.reserveGold
         val pushTarget = pushTarget(engine, foe)
         if (!pushing) {
             val goodMoment = !skill.timesPushes ||
@@ -447,7 +464,8 @@ class AiController(
             if (spare >= pushTarget && goodMoment) {
                 pushing = true
                 pushBudget = spare
-            } else if (ecoWindow && rng.nextFloat() < ecoShare) {
+                fancy = engine.roster.filter { engine.isUnlocked(it) }.randomOrNull(rng)
+            } else if (ecoWindow && rng.nextFloat() < style.ecoShare) {
                 sendForIncome(engine, own, foe, spare)
                 return
             } else if (engine.suddenDeath || spare > pushTarget * 2f) {
@@ -474,7 +492,7 @@ class AiController(
                 return true
             }
         }
-        if (mines.size < maxMines && own.towers.size < GameData.MAX_TOWERS_PER_LANE - 3 &&
+        if (mines.size < style.maxMines && own.towers.size < GameData.MAX_TOWERS_PER_LANE - 3 &&
             mineType.incomeBonusPerSecond * secondsLeft > mineType.cost * 1.3f
         ) {
             if (own.gold >= mineType.cost) {
@@ -489,7 +507,7 @@ class AiController(
     private fun sendForIncome(engine: GameEngine, own: Battlefield, foe: Battlefield, spare: Float) {
         var best: EnemySendType? = null
         var bestRate = 0f
-        for (unit in GameData.SENDABLE_UNITS) {
+        for (unit in engine.roster) {
             if (unit.cost > spare || unit.incomeBonus <= 0f || !engine.isUnlocked(unit)) continue
             if (engine.sendCooldownFraction(own, unit) > 0f) continue
             val rate = unit.incomeBonus / unit.cost
@@ -511,6 +529,7 @@ class AiController(
         }
         if (engine.sendEnemy(own, foe, unit) == SendResult.OK) {
             pushBudget -= unit.cost
+            lastSent = unit
             if (unit.maxHp >= 200f) lastHeavySendAtMs = engine.elapsedMs
         }
         // Keep the units coming in one tight group instead of one per think.
@@ -519,41 +538,52 @@ class AiController(
 
     /** The unit that should hurt [foe]'s defense most per gold, among those [budget] can buy right now. */
     private fun choosePressureUnit(engine: GameEngine, own: Battlefield, foe: Battlefield, budget: Float): EnemySendType? {
+        // What the defense in front of it is made of.
         var antiAir = false
         var areaPower = 0f
+        var rapidPower = 0f
+        var controlPower = 0f
         var totalPower = 0f
         for (t in foe.towers) {
             val p = towerPower(engine, t)
             totalPower += p
             if (t.type.bonusDamageVsFlyerPct > 0f) antiAir = true
-            if (t.splashRadius > 0f || t.chains > 0 || t.dotDps > 0f || t.slow > 0f) areaPower += p
+            if (t.splashRadius > 0f || t.chains > 0 || t.pierce > 0 || t.type.shot.isPulse) areaPower += p
+            if (engine.shotDamage(t) <= 10f && !t.type.shot.isPulse) rapidPower += p
+            if (t.slow > 0f || t.stunChance > 0f || t.knockback > 0f) controlPower += p
         }
         val areaShare = if (totalPower > 0f) areaPower / totalPower else 0f
+        val rapidShare = if (totalPower > 0f) rapidPower / totalPower else 0f
+        val controlShare = if (totalPower > 0f) controlPower / totalPower else 0f
         val sharp = rng.nextFloat() < skill.sharpness
         val escorting = engine.elapsedMs - lastHeavySendAtMs < 4000f
 
         var best: EnemySendType? = null
         var bestScore = 0f
         var waiting = false
-        for (unit in GameData.SENDABLE_UNITS) {
+        for (unit in engine.roster) {
             if (unit.cost > budget || !engine.isUnlocked(unit)) continue
             if (engine.sendCooldownFraction(own, unit) > 0f) {
                 waiting = true
                 continue
             }
-            var hp = unit.maxHp * unit.count
-            val childId = unit.spawnOnDeathId
-            if (childId != null) hp += GameData.unit(childId).maxHp * unit.spawnOnDeathCount
-            var score = hp / unit.cost * sqrt(unit.speed / 9f)
+            var score = WaveGenerator.unitHp(unit) * unit.count / unit.cost * sqrt(unit.speed / 9f)
             if (sharp) {
+                val crowd = unit.count > 1 || unit.spawnOnDeathCount >= 5
+                val escort = unit.healPerSecond > 0f || unit.hasteAuraPct > 0f
                 if (unit.flying) score *= if (antiAir) 0.8f else 2f
-                if (unit.count > 1) score *= if (areaShare < 0.25f) 1.6f else 0.6f
-                if (unit.healPerSecond > 0f) score *= if (escorting) 2.2f else 0.6f
+                if (crowd) score *= if (areaShare < 0.25f) 1.6f else 0.6f
+                if (escort) score *= if (escorting) 2.2f else 0.6f
                 // One fat unit walks through a defense built to mow down crowds.
                 if (unit.maxHp >= 200f) score *= 1f + areaShare * 0.5f
+                if (unit.armor > 0f) score *= 1f + rapidShare * 1.5f
+                if (unit.controlImmune) score *= 1f + controlShare * 1.5f
+                if (unit.phaseMs > 0L) score *= 1.3f
+                if (unit.regenPerSecond > 0f) score *= if (totalPower < 80f) 1.5f else 1.1f
             } else {
                 score = 0.5f + rng.nextFloat()
             }
+            score *= taste(unit)
             if (score > bestScore) {
                 bestScore = score
                 best = unit
@@ -562,9 +592,23 @@ class AiController(
         // Everything affordable is cooling down. Returning one of those anyway makes this send
         // fail harmlessly and keeps the push open for the next think, instead of ending it early.
         if (best == null && waiting) {
-            return GameData.SENDABLE_UNITS.firstOrNull { it.cost <= budget && engine.isUnlocked(it) }
+            return engine.roster.firstOrNull { it.cost <= budget && engine.isUnlocked(it) }
         }
         return best
+    }
+
+    /** How much this personality likes sending [unit], whatever the numbers say. */
+    private fun taste(unit: EnemySendType): Float = when (personality) {
+        AiPersonality.SWARMER ->
+            if (unit.count > 1 || unit.spawnOnDeathCount > 0 || unit.maxHp <= 45f) 1.8f else 0.6f
+        AiPersonality.BRUISER -> if (unit.maxHp >= 150f) 1.8f else 0.5f
+        AiPersonality.GAMBLER -> if (unit === fancy) 2.5f else 1f
+        AiPersonality.TRICKSTER -> when {
+            unit === lastSent -> 0.35f // never the same thing twice in a row
+            unit.healPerSecond > 0f || unit.hasteAuraPct > 0f || unit.phaseMs > 0L || unit.flying -> 1.6f
+            else -> 1f
+        }
+        else -> 1f
     }
 
     /** How much gold the next push should be worth before it is sent. */
@@ -575,30 +619,27 @@ class AiController(
             AiPersonality.TURTLE -> 260f + pushRoll * 200f + engine.round * 10f
             AiPersonality.TYCOON ->
                 if (engine.timeRemainingSec() > 60) 260f + pushRoll * 160f else 350f + pushRoll * 250f
+            AiPersonality.SWARMER -> 90f + pushRoll * 90f
+            AiPersonality.BRUISER -> 220f + pushRoll * 160f + engine.round * 8f
+            // Scraps most of the time, then everything it has.
+            AiPersonality.GAMBLER -> if (pushRoll < 0.6f) 40f + pushRoll * 60f else 380f + pushRoll * 320f
+            AiPersonality.TRICKSTER -> 150f + pushRoll * 150f
         }
-        // A sharp AI does not push by habit: it works out what the defense in front of it can
-        // absorb and saves until it can send more than that. A Rusher only bothers every third push.
-        val calculates = skill.sharpness >= 0.5f && (personality != AiPersonality.RUSHER || pushCount % 3 == 2)
-        val target = if (calculates) maxOf(habit, breakBudget(engine, foe) * breakAmbition()) else habit
+        // The hardest AI does not push by habit: it works out what the defense in front of it can
+        // absorb and saves until it can send more than that. The impatient ones only bother now and then.
+        val impatient = personality == AiPersonality.RUSHER || personality == AiPersonality.SWARMER ||
+            (personality == AiPersonality.GAMBLER && pushRoll < 0.6f)
+        val calculates = skill.timesPushes && (!impatient || pushCount % 3 == 2)
+        val target = if (calculates) maxOf(habit, breakBudget(engine, foe) * style.ambition) else habit
         return target * skill.pushScale
-    }
-
-    private fun breakAmbition(): Float = when (personality) {
-        AiPersonality.TURTLE -> 1.3f
-        AiPersonality.TYCOON -> 1.2f
-        AiPersonality.BALANCED -> 1f
-        AiPersonality.RUSHER -> 0.8f
     }
 
     /** Gold worth of units that should be more than [foe]'s towers can kill in one pass. */
     private fun breakBudget(engine: GameEngine, foe: Battlefield): Float {
         var bestHpPerGold = 0.5f
-        for (unit in GameData.SENDABLE_UNITS) {
+        for (unit in engine.roster) {
             if (!engine.isUnlocked(unit)) continue
-            var hp = unit.maxHp * unit.count
-            val childId = unit.spawnOnDeathId
-            if (childId != null) hp += GameData.unit(childId).maxHp * unit.spawnOnDeathCount
-            bestHpPerGold = maxOf(bestHpPerGold, hp / unit.cost)
+            bestHpPerGold = maxOf(bestHpPerGold, WaveGenerator.unitHp(unit) * unit.count / unit.cost)
         }
         val absorbs = lanePower(engine, foe) * EXPOSURE_SEC * BREAK_MARGIN
         return (absorbs / (bestHpPerGold * engine.sendHpScale())).coerceAtMost(MAX_PUSH_GOLD)
@@ -629,8 +670,8 @@ class AiController(
                 .sortedByDescending { draftValue(it) + rng.nextFloat() * (if (difficulty == Difficulty.HARD) 0.1f else 0.5f) }
             for (candidate in rest) {
                 if (hand.size >= picks) break
-                // Two towers that do not shoot leave too little firepower.
-                if (!candidate.isAttacker && hand.any { !it.isAttacker }) continue
+                // Two towers that cannot kill on their own leave too little firepower.
+                if (candidate.baseDps < GameData.MIN_DRAFT_DPS && hand.any { it.baseDps < GameData.MIN_DRAFT_DPS }) continue
                 hand.add(candidate)
             }
             for (candidate in rest) {
@@ -643,9 +684,14 @@ class AiController(
         /** Rough strength per gold; only used to rank a draft. */
         private fun draftValue(type: TroopType): Float {
             var dps = type.baseDps
+            if (type.critChance > 0f) dps *= 1f + type.critChance * (type.critMultiplier - 1f)
+            if (type.rampMax > 0f) dps *= 1f + type.rampMax * 0.4f
             if (type.splashRadius > 0f) dps *= 1f + type.splashRadius / 9f
             if (type.chainTargets > 0) dps *= 1f + 0.5f * type.chainTargets
+            if (type.pierce > 0) dps *= 1f + 0.35f * type.pierce
+            dps *= 1f + type.executeBelowPct / 100f + type.bountyBonusPct / 400f
             dps += type.dotDamagePerSecond * PULSE_TARGETS + type.slowFactor * 45f + type.stunChance * 14f
+            dps += type.knockback * 5f + type.vulnerabilityPct * 0.6f
             dps += type.incomeBonusPerSecond * 12f + type.auraDamageBonusPct * 0.9f
             return dps / type.cost
         }

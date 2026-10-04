@@ -16,8 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint as ComposePaint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -141,6 +143,7 @@ class LanePainter(typeface: Typeface) {
         strokeJoin = Paint.Join.ROUND
     }
     private val boltPath = Path()
+    private val phasedPaint = ComposePaint().apply { alpha = 0.38f }
     private val inkArgb = Ink.toArgb()
 
     fun DrawScope.drawField(
@@ -227,14 +230,23 @@ class LanePainter(typeface: Typeface) {
 
     private fun DrawScope.drawEnemy(engine: GameEngine, e: EnemyUnit, u: Float) {
         val now = engine.elapsedMs
+        // A phased unit is out of reach: drawn see-through, as one layer so its parts do not show through each other.
+        val phased = engine.isPhased(e)
+        if (phased) {
+            val r = (e.type.radius + 2.5f) * u
+            drawContext.canvas.saveLayer(Rect(e.x * u - r, e.y * u - r * 1.8f, e.x * u + r, e.y * u + r), phasedPaint)
+        }
         drawUnit(
             e.type, e.x * u, e.y * u, u, e.dirX, e.dirY, now, e.instanceId.toInt(),
             hpFrac = e.hp / e.maxHp,
             flash = (1f - (now - e.lastHitAtMs) / 110f).coerceIn(0f, 1f),
             slowed = now < e.slowExpiresAtMs,
             stunned = now < e.stunExpiresAtMs,
-            poisoned = now < e.dotExpiresAtMs
+            poisoned = now < e.dotExpiresAtMs,
+            cursed = now < e.vulnerableUntilMs,
+            hasted = now < e.hasteUntilMs
         )
+        if (phased) drawContext.canvas.restore()
     }
 
     private fun DrawScope.drawProjectile(p: Projectile, u: Float) {
@@ -271,6 +283,12 @@ class LanePainter(typeface: Typeface) {
                 blob(color, x, y, 0.75f * u, ow)
                 drawCircle(Color.White, 0.32f * u, Offset(x, y))
             }
+            ShotKind.GLAIVE -> {
+                rotate(p.ageMs * 1.4f, Offset(x, y)) {
+                    drawStar(color, x, y, 1.9f * u, ow)
+                    drawCircle(Ink, 0.4f * u, Offset(x, y))
+                }
+            }
             else -> {
                 // A dart: pointed, with a fin in the tower's colour
                 rotate(p.angle * 180f / PI.toFloat(), Offset(x, y)) {
@@ -300,6 +318,18 @@ class LanePainter(typeface: Typeface) {
             FxKind.HEAL -> {
                 val r = fx.size * u * (0.3f + 0.7f * ease)
                 drawCircle(Leaf.lighten(0.3f).copy(alpha = 0.75f * (1f - t)), r, c, style = Stroke(0.5f * u))
+            }
+            FxKind.HASTE -> {
+                val r = fx.size * u * (0.3f + 0.7f * ease)
+                drawCircle(Color(0xFFFFB45C).copy(alpha = 0.75f * (1f - t)), r, c, style = Stroke(0.5f * u))
+            }
+            FxKind.GUST_RING -> {
+                // Two rings chasing each other outwards
+                for (k in 0..1) {
+                    val r = fx.size * u * (0.2f + 0.8f * ease) * (1f - 0.28f * k)
+                    drawCircle(Color.White.copy(alpha = 0.8f * (1f - t)), r, c, style = Stroke((0.7f - 0.25f * k) * u))
+                }
+                drawCircle(Color(0xFFBFE3FF).copy(alpha = 0.18f * (1f - t)), fx.size * u * (0.2f + 0.8f * ease), c)
             }
             FxKind.DUST -> {
                 for (i in 0 until 7) {
@@ -365,6 +395,37 @@ class LanePainter(typeface: Typeface) {
                 }
             }
             FxKind.GOLD_TEXT -> floatText("+${fx.value}", c.x, c.y - ease * 3.6f * u, 3.1f * u, Sun, 1f - t * t * t)
+            FxKind.BEAM -> {
+                val end = Offset(fx.x2 * u, fx.y2 * u)
+                val color = fx.tower?.color ?: Color.White
+                drawLine(color.copy(alpha = 0.55f * (1f - t)), c, end, (0.6f + fx.size) * u, StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = 0.95f * (1f - t)), c, end, (0.2f + fx.size * 0.3f) * u, StrokeCap.Round)
+                drawCircle(Color.White.copy(alpha = 0.8f * (1f - t)), (0.6f + fx.size) * u, end)
+            }
+            FxKind.FLAME -> {
+                // Puffs of fire along the jet, growing towards the target, then a burst where it lands
+                val end = Offset(fx.x2 * u, fx.y2 * u)
+                val fade = 1f - t
+                for (k in 0..5) {
+                    val f = k / 5f
+                    val wobble = (((fx.seed * 31 + k * 7919) and 0xFF) / 255f - 0.5f) * 1.2f * u
+                    val puff = Offset(c.x + (end.x - c.x) * f + wobble, c.y + (end.y - c.y) * f + wobble * 0.6f)
+                    val r = (0.7f + f * fx.size * 0.35f) * u * (0.7f + 0.5f * t)
+                    drawCircle(Color(0xFFFF7A2E).copy(alpha = 0.6f * fade), r, puff)
+                    drawCircle(Color(0xFFFFD75A).copy(alpha = 0.8f * fade), r * 0.55f, puff)
+                }
+                drawCircle(Color(0xFFFF8A2B).copy(alpha = 0.3f * fade), fx.size * u * (0.6f + 0.4f * ease), end)
+            }
+            FxKind.CRIT -> {
+                drawStar(Sun.copy(alpha = 1f - t), c.x, c.y, fx.size * u * (1.2f + 1.4f * ease), ow * (1f - t))
+                floatText("CRIT!", c.x, c.y - (1.5f + ease * 2.5f) * u, 2.9f * u, Sun, 1f - t * t)
+            }
+            FxKind.EXECUTE -> {
+                // A red slash across the unit
+                val r = fx.size * u * (1.1f + 0.5f * ease)
+                drawLine(Ink.copy(alpha = 1f - t), Offset(c.x - r, c.y + r * 0.6f), Offset(c.x + r, c.y - r * 0.6f), 1.2f * u, StrokeCap.Round)
+                drawLine(Tomato.copy(alpha = 1f - t), Offset(c.x - r, c.y + r * 0.6f), Offset(c.x + r, c.y - r * 0.6f), 0.65f * u, StrokeCap.Round)
+            }
             FxKind.LIFE_TEXT -> floatText("-${fx.value}", c.x, c.y - ease * 4.5f * u, 4.6f * u, Tomato, 1f - t * t * t)
             else -> Unit
         }

@@ -15,7 +15,9 @@ class MatchRecord(
     val unitsSent: Int,
     val goldEarned: Int,
     val towersBuilt: Int,
-    val livesLost: Int
+    val livesLost: Int,
+    /** Who the match was against; empty for a match with no named rival. */
+    val rivalId: String = ""
 )
 
 data class DifficultyRecord(val wins: Int = 0, val losses: Int = 0) {
@@ -41,7 +43,9 @@ data class LifetimeStats(
     val bestRound: Int = 0,
     val mostPops: Int = 0,
     /** Tower id to how many matches it was drafted for. */
-    val towerPicks: Map<String, Int> = emptyMap()
+    val towerPicks: Map<String, Int> = emptyMap(),
+    /** Rival id to how many times the player has beaten them. */
+    val rivalWins: Map<String, Int> = emptyMap()
 ) {
     val matches: Int get() = wins + losses + draws
 
@@ -56,6 +60,8 @@ data class LifetimeStats(
         val record = byDifficulty[match.difficulty] ?: DifficultyRecord()
         val picks = HashMap(towerPicks)
         for (id in match.towerIds) picks[id] = (picks[id] ?: 0) + 1
+        val beaten = HashMap(rivalWins)
+        if (won && match.rivalId.isNotEmpty()) beaten[match.rivalId] = (beaten[match.rivalId] ?: 0) + 1
 
         return copy(
             wins = wins + if (won) 1 else 0,
@@ -76,7 +82,8 @@ data class LifetimeStats(
                 if (won && (fastestWinSeconds == 0 || match.seconds < fastestWinSeconds)) match.seconds else fastestWinSeconds,
             bestRound = maxOf(bestRound, match.round),
             mostPops = maxOf(mostPops, match.pops),
-            towerPicks = picks
+            towerPicks = picks,
+            rivalWins = beaten
         )
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -53,6 +54,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.towerduel.game.data.EnemySendType
 import com.towerduel.game.data.GameData
 import com.towerduel.game.data.LaneSpace
+import com.towerduel.game.data.MatchEventType
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.Battlefield
 import com.towerduel.game.engine.GameEngine
@@ -88,13 +90,9 @@ import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private val SEND_ROWS: List<List<EnemySendType>> = GameData.SENDABLE_UNITS.chunked(4)
-private val INCOME_LABELS: Map<String, String> = GameData.SENDABLE_UNITS.associate {
-    it.id to if (it.incomeBonus > 0f) String.format(Locale.US, "+%.2f/s", it.incomeBonus) else "no income"
-}
-
 private const val WARNING_SHOW_MS = 2600f
-private const val ROUND_BANNER_MS = 1500f
+private const val ROUND_BANNER_MS = 1900f
+private const val EVENT_BANNER_MS = 3000f
 
 /**
  * The engine is plain mutable state, not Compose state. Every composable in this file that reads
@@ -153,7 +151,7 @@ fun BattleScreen(
 
             LaneSlot(Modifier.weight(1f)) {
                 LaneView(eng, eng.aiField, AiColor, viewModel::observeFrame)
-                LaneOverlay(viewModel, eng, eng.aiField, "RIVAL", AiColor, isPlayer = false)
+                LaneOverlay(viewModel, eng, eng.aiField, viewModel.rival.name.uppercase(), AiColor, isPlayer = false)
             }
             Spacer(Modifier.height(6.dp))
             LaneSlot(Modifier.weight(1f)) {
@@ -200,7 +198,7 @@ private fun TopHud(viewModel: GameViewModel, eng: GameEngine) {
             totalRounds = eng.totalRounds,
             suddenDeath = eng.suddenDeath,
             // Whole tenths only, so the pill is not recomposed for changes nobody can see.
-            nextWaveFraction = ((1f - eng.secondsToNextRound() / GameData.ROUND_INTERVAL_SEC).coerceIn(0f, 1f) * 40f).roundToInt() / 40f,
+            nextWaveFraction = ((1f - eng.secondsToNextRound() / eng.roundIntervalSec).coerceIn(0f, 1f) * 40f).roundToInt() / 40f,
             modifierName = eng.modifier.name,
             modifier = Modifier.weight(1f)
         )
@@ -297,19 +295,85 @@ private fun BoxScope.LaneOverlay(
             val sinceRound = eng.elapsedMs - eng.roundStartedAtMs
             val warning = field.warning
             val sinceWarning = if (warning != null) eng.elapsedMs - warning.atMs else Float.MAX_VALUE
+            val event = eng.event
+            val sinceEvent = if (event != null) eng.elapsedMs - event.startedAtMs else Float.MAX_VALUE
+            // One announcement at a time, the most urgent first.
             when {
                 warning != null && sinceWarning < WARNING_SHOW_MS ->
                     WarningBanner(warning.unit, fade(sinceWarning, WARNING_SHOW_MS), Modifier.align(Alignment.Center))
+                event != null && sinceEvent < EVENT_BANNER_MS ->
+                    EventBanner(event.type, fade(sinceEvent, EVENT_BANNER_MS), Modifier.align(Alignment.Center))
                 eng.round > 0 && sinceRound < ROUND_BANNER_MS ->
-                    OutlinedText(
-                        if (eng.round > eng.totalRounds) "SUDDEN DEATH!" else "ROUND ${eng.round}",
-                        fontSize = 34.sp,
-                        color = if (eng.round > eng.totalRounds) Tomato else Sun,
+                    RoundBanner(
+                        eng.round, suddenDeath = eng.round > eng.totalRounds, waveTitle = eng.waveTitle,
                         modifier = Modifier.align(Alignment.Center).alpha(fade(sinceRound, ROUND_BANNER_MS))
                     )
             }
+            // While a timed event lasts, a chip in the opposite corner counts it down.
+            val secondsLeft = eng.eventSecondsLeft()
+            if (event != null && secondsLeft > 0) {
+                val corner = if (tagCorner == Alignment.TopStart) Alignment.TopEnd else Alignment.BottomEnd
+                EventChip(event.type, secondsLeft, Modifier.align(corner))
+            }
+        } else {
+            // The rival talks from next to its own name tag.
+            val line = viewModel.rivalLine
+            if (line != null) {
+                val gap = Modifier.padding(top = if (tagCorner == Alignment.TopStart) 32.dp else 0.dp, bottom = if (tagCorner == Alignment.TopStart) 0.dp else 32.dp)
+                SpeechBubble(line, Modifier.align(tagCorner).then(gap))
+            }
         }
     }
+}
+
+@Composable
+private fun RoundBanner(round: Int, suddenDeath: Boolean, waveTitle: String?, modifier: Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        OutlinedText(
+            if (suddenDeath) "SUDDEN DEATH!" else "ROUND $round",
+            fontSize = 34.sp, color = if (suddenDeath) Tomato else Sun
+        )
+        // A themed wave says what is coming.
+        if (waveTitle != null) OutlinedText(waveTitle, fontSize = 20.sp, modifier = Modifier.offset(y = (-6).dp))
+    }
+}
+
+@Composable
+private fun EventBanner(type: MatchEventType, alpha: Float, modifier: Modifier) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .alpha(alpha)
+            .clip(shape)
+            .background(Sky)
+            .border(2.5.dp, Ink, shape)
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        OutlinedText("${type.label.uppercase()}!", fontSize = 22.sp, modifier = Modifier.offset(y = 1.5.dp))
+        Text(type.blurb, color = Ink, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun EventChip(type: MatchEventType, secondsLeft: Int, modifier: Modifier) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        modifier = modifier.clip(shape).background(Sky).border(2.dp, Ink, shape).padding(horizontal = 9.dp, vertical = 3.dp)
+    ) {
+        OutlinedText("${type.label.uppercase()}  $secondsLeft", fontSize = 13.sp, modifier = Modifier.offset(y = 1.dp))
+    }
+}
+
+@Composable
+private fun SpeechBubble(line: String, modifier: Modifier) {
+    val shape = RoundedCornerShape(12.dp)
+    Text(
+        line, color = Ink, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, lineHeight = 15.sp,
+        style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        modifier = modifier.fillMaxWidth(0.62f).wrapContentWidth(Alignment.Start)
+            .clip(shape).background(Cream).border(2.dp, Ink, shape).padding(horizontal = 9.dp, vertical = 4.dp)
+    )
 }
 
 /** 1 for most of [totalMs], dropping to 0 over the last quarter. Rounded so it changes in visible steps only. */
@@ -354,6 +418,13 @@ private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
     val field = eng.playerField
     val gold = field.gold
     val selected = viewModel.selectedTowerId?.let { id -> field.towers.find { it.instanceId == id } }
+    // The match's roster, four to a row, and what each send adds to income under this match's rules.
+    val sendRows = remember(eng) { eng.roster.chunked(4) }
+    val incomeLabels = remember(eng) {
+        eng.roster.associate {
+            it.id to if (it.incomeBonus > 0f) String.format(Locale.US, "+%.2f/s", eng.sendIncome(it)) else "no income"
+        }
+    }
 
     GamePanel(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -377,7 +448,7 @@ private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
                 }
             }
 
-            for (row in SEND_ROWS) {
+            for (row in sendRows) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (unit in row) {
                         SendChip(
@@ -387,6 +458,7 @@ private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
                             unlockRound = eng.unlockRoundOf(unit),
                             // Coarse steps: enough for a smooth-looking refill without a recomposition per frame.
                             cooldown = (eng.sendCooldownFraction(field, unit) * 12f).roundToInt() / 12f,
+                            incomeLabel = incomeLabels[unit.id] ?: "",
                             onClick = { viewModel.sendUnit(unit) },
                             modifier = Modifier.weight(1f)
                         )
@@ -554,9 +626,11 @@ private fun TowerControls(viewModel: GameViewModel, eng: GameEngine, tower: Towe
 @Composable
 private fun SendChip(
     unit: EnemySendType, affordable: Boolean, unlocked: Boolean, unlockRound: Int, cooldown: Float,
-    onClick: () -> Unit, modifier: Modifier
+    incomeLabel: String, onClick: () -> Unit, modifier: Modifier
 ) {
     val ready = affordable && cooldown <= 0f
+    // The chip has room for about eight letters at full size; "Juggernaut" needs the smallest.
+    val nameSize = if (unit.name.length > 9) 8.5.sp else if (unit.name.length > 8) 9.sp else 10.5.sp
     ChunkyButton(
         onClick, modifier.height(52.dp),
         color = if (unlocked) PanelLight else Panel, corner = 12.dp, depth = 4.dp, sound = null,
@@ -566,7 +640,7 @@ private fun SendChip(
             if (!unlocked) {
                 GameIcon(GameIconKind.LOCK, Modifier.padding(horizontal = 6.dp).size(20.dp), tint = Dim)
                 Column {
-                    Text(unit.name, color = Dim, fontSize = 10.5.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Text(unit.name, color = Dim, fontSize = nameSize, lineHeight = 11.sp, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     Text("Round $unlockRound", color = Dim, fontSize = 10.sp, lineHeight = 11.sp, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             } else {
@@ -575,7 +649,7 @@ private fun SendChip(
                 Spacer(Modifier.width(2.dp))
                 Column {
                     Text(
-                        unit.name, color = if (ready) Cream else Dim, fontSize = 10.5.sp, lineHeight = 11.sp,
+                        unit.name, color = if (ready) Cream else Dim, fontSize = nameSize, lineHeight = 11.sp,
                         fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Clip
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -584,7 +658,7 @@ private fun SendChip(
                         OutlinedText("${unit.cost}", fontSize = 13.5.sp, color = if (affordable) Sun else Dim, modifier = Modifier.offset(y = 1.dp))
                     }
                     Text(
-                        INCOME_LABELS[unit.id] ?: "", color = if (unit.incomeBonus > 0f) Leaf else Dim,
+                        incomeLabel, color = if (unit.incomeBonus > 0f) Leaf else Dim,
                         fontSize = 9.5.sp, lineHeight = 10.sp, style = MaterialTheme.typography.labelSmall, maxLines = 1
                     )
                 }
