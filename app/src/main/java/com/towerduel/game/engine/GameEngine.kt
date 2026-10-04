@@ -208,10 +208,12 @@ class GameEngine(
     fun clampToLane(x: Float, y: Float): Pair<Float, Float> =
         x.coerceIn(LANE_MARGIN, LaneSpace.WIDTH - LANE_MARGIN) to y.coerceIn(LANE_MARGIN, LaneSpace.HEIGHT - LANE_MARGIN)
 
-    /** What placing [type] at (x, y) would do, without doing it. Position problems win over a short purse. */
+    /**
+     * What placing [type] at (x, y) would do, without doing it. Position problems win over a short
+     * purse. There is no cap on towers: a lane holds as many as fit beside the track.
+     */
     fun checkPlacement(field: Battlefield, type: TroopType, x: Float, y: Float): PlaceResult {
         if (outcome != MatchOutcome.ONGOING) return PlaceResult.MATCH_OVER
-        if (field.towers.size >= GameData.MAX_TOWERS_PER_LANE) return PlaceResult.LANE_FULL
         val (cx, cy) = clampToLane(x, y)
         if (path.distanceTo(cx, cy) < GameData.PATH_CLEARANCE) return PlaceResult.ON_PATH
         val last = path.pointCount - 1

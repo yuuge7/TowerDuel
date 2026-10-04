@@ -9,7 +9,6 @@ object GameData {
     const val STARTING_GOLD = 130
     const val STARTING_LIVES = 100
     const val MATCH_DURATION_SEC = 240
-    const val MAX_TOWERS_PER_LANE = 10
     const val MIN_TOWER_SPACING = 7.5f
     const val MIN_DRAFT_DPS = 10f
 

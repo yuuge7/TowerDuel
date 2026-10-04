@@ -265,25 +265,24 @@ class AiController(
         val out = ArrayList<Purchase>()
         val powers = FloatArray(own.towers.size) { towerPower(engine, own.towers[it]) }
 
-        if (own.towers.size < GameData.MAX_TOWERS_PER_LANE) {
-            val cover = coverCounts(engine, own)
-            for (type in own.draftedTroops) {
-                if (type.incomeBonusPerSecond > 0f) continue // economy, bought in invest()
-                val spot = bestSpot(engine, own, type, cover, powers, lateBias) ?: continue
-                val gain = if (type.auraRange > 0f) {
-                    spot.score * type.auraDamageBonusPct / 100f
-                } else {
-                    power(
-                        type, type.damage * engine.modifier.damageMultiplier, 1,
-                        type.fireRateMs * engine.modifier.reloadMultiplier,
-                        type.splashRadius, type.chainTargets, type.pierce, type.slowFactor, type.dotDamagePerSecond,
-                        type.stunChance, type.critChance, type.rampMax, type.vulnerabilityPct / 100f, type.knockback,
-                        type.executeBelowPct / 100f,
-                        engine.path.coverage(spot.x, spot.y, engine.baseReach(type), LaneSpace.WIDTH)
-                    )
-                }
-                if (gain > 0f) out.add(Purchase(type, null, spot.x, spot.y, type.cost, gain / type.cost * mixWeight(type)))
+        // A new tower of each drafted type, wherever it would do most. No spot left means no option.
+        val cover = coverCounts(engine, own)
+        for (type in own.draftedTroops) {
+            if (type.incomeBonusPerSecond > 0f) continue // economy, bought in invest()
+            val spot = bestSpot(engine, own, type, cover, powers, lateBias) ?: continue
+            val gain = if (type.auraRange > 0f) {
+                spot.score * type.auraDamageBonusPct / 100f
+            } else {
+                power(
+                    type, type.damage * engine.modifier.damageMultiplier, 1,
+                    type.fireRateMs * engine.modifier.reloadMultiplier,
+                    type.splashRadius, type.chainTargets, type.pierce, type.slowFactor, type.dotDamagePerSecond,
+                    type.stunChance, type.critChance, type.rampMax, type.vulnerabilityPct / 100f, type.knockback,
+                    type.executeBelowPct / 100f,
+                    engine.path.coverage(spot.x, spot.y, engine.baseReach(type), LaneSpace.WIDTH)
+                )
             }
+            if (gain > 0f) out.add(Purchase(type, null, spot.x, spot.y, type.cost, gain / type.cost * mixWeight(type)))
         }
 
         for ((i, t) in own.towers.withIndex()) {
@@ -492,9 +491,7 @@ class AiController(
                 return true
             }
         }
-        if (mines.size < style.maxMines && own.towers.size < GameData.MAX_TOWERS_PER_LANE - 3 &&
-            mineType.incomeBonusPerSecond * secondsLeft > mineType.cost * 1.3f
-        ) {
+        if (mines.size < style.maxMines && mineType.incomeBonusPerSecond * secondsLeft > mineType.cost * 1.3f) {
             if (own.gold >= mineType.cost) {
                 val spot = bestSpot(engine, own, mineType, FloatArray(engine.path.pointCount), FloatArray(own.towers.size), false)
                 if (spot != null) engine.placeTower(own, mineType, spot.x, spot.y)

@@ -241,6 +241,6 @@ class Battlefield(
 
 enum class MatchOutcome { PLAYER_WIN, AI_WIN, DRAW, ONGOING }
 
-enum class PlaceResult { OK, NOT_ENOUGH_GOLD, TOO_CLOSE, ON_PATH, LANE_FULL, MATCH_OVER }
+enum class PlaceResult { OK, NOT_ENOUGH_GOLD, TOO_CLOSE, ON_PATH, MATCH_OVER }
 
 enum class SendResult { OK, NOT_ENOUGH_GOLD, LOCKED, COOLING_DOWN, MATCH_OVER }

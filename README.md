@@ -98,7 +98,8 @@ Each side starts with 130 gold and 100 lives and earns gold every second.
 - **Build.** Tap one of your towers in the bottom panel, then touch your
   lane (the lower one). Keep your finger down to see the tower's range and
   drag it into place; lift to build. Towers cannot stand on the track or on
-  each other, and a lane holds up to 10.
+  each other. There is no limit on how many you build: a lane holds as
+  many as fit beside the track.
 - **Tap a placed tower** to see its range and stats, upgrade it (twice),
   change which unit it shoots first, or sell it for 70% of what you spent.
 - **Send.** The two rows of unit buttons are this match's roster; the
@@ -261,8 +262,8 @@ What a tower or unit can *do* is a set of fields on `TroopType` and
 on), all applied in one place: `GameEngine.hit`. A new ability is a new
 field there.
 
-Global balance values (starting gold, lives, income, round timing, towers
-per lane, how often events strike) are constants at the top of `GameData.kt`.
+Global balance values (starting gold, lives, income, round timing, how often
+events strike) are constants at the top of `GameData.kt`.
 
 To add a random event, add a value to `MatchEventType` in `GameModels.kt` and
 give it its effect in `GameEngine.kt`. To add an AI play style, add a value

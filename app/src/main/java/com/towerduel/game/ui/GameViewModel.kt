@@ -446,7 +446,6 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             PlaceResult.NOT_ENOUGH_GOLD -> deny("Not enough gold for ${troop.name}")
             PlaceResult.TOO_CLOSE -> deny("Too close to another tower")
             PlaceResult.ON_PATH -> deny("Can't build on the track")
-            PlaceResult.LANE_FULL -> deny("Tower limit reached (${GameData.MAX_TOWERS_PER_LANE})")
             PlaceResult.MATCH_OVER -> Unit
         }
     }
