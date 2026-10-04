@@ -9,11 +9,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.towerduel.game.ui.AppNavHost
 import com.towerduel.game.ui.GameViewModel
-import com.towerduel.game.ui.theme.BgDark
+import com.towerduel.game.ui.components.LocalSfx
+import com.towerduel.game.ui.theme.NightDeep
 import com.towerduel.game.ui.theme.TowerDuelTheme
 
 class MainActivity : ComponentActivity() {
@@ -33,9 +35,11 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun TowerDuelApp() {
     TowerDuelTheme {
-        Surface(modifier = Modifier.fillMaxSize(), color = BgDark) {
+        Surface(modifier = Modifier.fillMaxSize(), color = NightDeep) {
             val viewModel: GameViewModel = viewModel()
-            AppNavHost(viewModel)
+            CompositionLocalProvider(LocalSfx provides viewModel::playUi) {
+                AppNavHost(viewModel)
+            }
         }
     }
 }

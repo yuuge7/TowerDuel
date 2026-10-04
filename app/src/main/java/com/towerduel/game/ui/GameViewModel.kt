@@ -1,11 +1,12 @@
 package com.towerduel.game.ui
 
+import android.app.Application
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.AndroidViewModel
 import com.towerduel.game.data.AiPersonality
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.EnemySendType
@@ -17,21 +18,36 @@ import com.towerduel.game.engine.AiController
 import com.towerduel.game.engine.GameEngine
 import com.towerduel.game.engine.MatchOutcome
 import com.towerduel.game.engine.PlaceResult
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import com.towerduel.game.engine.SendResult
+import com.towerduel.game.engine.SoundCue
+import com.towerduel.game.ui.audio.SoundFx
+import com.towerduel.game.ui.render.Ghost
 import kotlin.math.sqrt
 
 /** A short message shown over the battle; [id] makes a repeat of the same text count as new. */
 data class Notice(val text: String, val id: Int)
 
-class GameViewModel : ViewModel() {
+/** The simulation advances in fixed steps, so a match plays the same at any frame rate. */
+private const val STEP_SECONDS = 1f / 60f
+private const val MAX_STEPS_PER_FRAME = 8
+private const val TOWER_TAP_RADIUS = 4.5f
+
+/** Stable for Compose: everything a screen reads from it is snapshot state. */
+@Stable
+class GameViewModel(app: Application) : AndroidViewModel(app) {
+
+    val profile = ProfileStore(app)
+    private val sound = SoundFx(app).also { it.enabled = profile.soundOn }
+
+    /** The AI-versus-AI match that plays on the main menu; null while the first one is being prepared. */
+    var demo by mutableStateOf<DemoMatch?>(null)
 
     // ---- Pre-match setup (rerolled each time a match is queued) ----
-    var selectedDifficulty by mutableStateOf(Difficulty.MEDIUM)
+    var selectedDifficulty by mutableStateOf(profile.lastDifficulty)
         private set
-    var playerDraft by mutableStateOf<List<TroopType>>(emptyList())
+    var offeredTroops by mutableStateOf<List<TroopType>>(emptyList())
+        private set
+    var pickedTroops by mutableStateOf<List<TroopType>>(emptyList())
         private set
     var aiDraft by mutableStateOf<List<TroopType>>(emptyList())
         private set
@@ -43,13 +59,24 @@ class GameViewModel : ViewModel() {
         private set
 
     /** False until a match has been rolled, e.g. after the process was killed and restored. */
-    val hasMatchSetup: Boolean get() = playerDraft.isNotEmpty()
+    val hasMatchSetup: Boolean get() = offeredTroops.isNotEmpty()
+
+    /** Why the current picks cannot go to battle yet, or null when they can. */
+    val draftProblem: String?
+        get() {
+            val missing = GameData.DRAFT_PICKS - pickedTroops.size
+            return when {
+                missing > 1 -> "Pick $missing more towers"
+                missing == 1 -> "Pick 1 more tower"
+                !GameData.hasDamageDealer(pickedTroops) -> "Swap in a tower that can deal real damage"
+                else -> null
+            }
+        }
 
     // ---- Live match ----
     var engine by mutableStateOf<GameEngine?>(null)
         private set
     private var aiController: AiController? = null
-    private var loopJob: Job? = null
 
     private var frame by mutableIntStateOf(0)
 
@@ -61,136 +88,229 @@ class GameViewModel : ViewModel() {
 
     var paused by mutableStateOf(false)
         private set
+    var fastForward by mutableStateOf(false)
+        private set
     var armedTroop by mutableStateOf<TroopType?>(null)
         private set
     var selectedTowerId by mutableStateOf<Long?>(null)
+        private set
+    var ghost by mutableStateOf<Ghost?>(null)
         private set
     var notice by mutableStateOf<Notice?>(null)
         private set
     private var nextNoticeId = 0
 
+    private var lastFrameNanos = 0L
+    private var accumulator = 0f
+    private var resultRecorded = false
+
     fun rollNewMatchSetup(difficulty: Difficulty) {
         selectedDifficulty = difficulty
-        playerDraft = GameData.randomDraft()
-        aiDraft = GameData.randomDraft()
+        profile.rememberDifficulty(difficulty)
+        offeredTroops = GameData.randomDraft()
+        pickedTroops = emptyList()
+        aiDraft = AiController.pickDraft(GameData.randomDraft(), difficulty)
         map = GameData.randomMap()
         modifier = GameData.randomModifier()
         aiPersonality = GameData.randomPersonality()
     }
 
+    fun toggleDraftPick(troop: TroopType) {
+        pickedTroops = when {
+            troop in pickedTroops -> pickedTroops - troop
+            pickedTroops.size < GameData.DRAFT_PICKS -> pickedTroops + troop
+            else -> {
+                playUi(SoundCue.DENIED)
+                return
+            }
+        }
+        playUi(SoundCue.PLACE)
+    }
+
     fun startMatch() {
-        val newEngine = GameEngine(map, modifier, playerDraft, aiDraft)
-        engine = newEngine
+        if (draftProblem != null) return
+        // Keep the build bar in the order the towers were offered, not the order they were tapped.
+        pickedTroops = offeredTroops.filter { it in pickedTroops }
+        engine = GameEngine(map, modifier, pickedTroops, aiDraft)
         aiController = AiController(aiPersonality, selectedDifficulty)
         armedTroop = null
         selectedTowerId = null
+        ghost = null
         notice = null
         paused = false
-        startLoop()
+        fastForward = false
+        lastFrameNanos = 0L
+        accumulator = 0f
+        resultRecorded = false
     }
 
-    private fun startLoop() {
-        loopJob?.cancel()
-        loopJob = viewModelScope.launch {
-            var lastNanos = System.nanoTime()
-            while (isActive) {
-                val now = System.nanoTime()
-                val dt = ((now - lastNanos) / 1_000_000_000f).coerceIn(0f, 0.1f)
-                lastNanos = now
+    /** Advances the match to the display's frame time. The battle screen calls this once per frame. */
+    fun onFrame(frameNanos: Long) {
+        val eng = engine ?: return
+        val dt = if (lastFrameNanos == 0L) 0f else ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.1f)
+        lastFrameNanos = frameNanos
+        if (paused || eng.outcome != MatchOutcome.ONGOING) return
 
-                val eng = engine ?: break
-                if (eng.outcome != MatchOutcome.ONGOING) {
-                    frame++
-                    break
-                }
-                if (!paused) {
-                    eng.update(dt)
-                    aiController?.update(dt, eng)
-                    frame++
-                }
-                delay(16L)
+        accumulator += dt * (if (fastForward) 2f else 1f)
+        var steps = 0
+        while (accumulator >= STEP_SECONDS && steps < MAX_STEPS_PER_FRAME) {
+            eng.update(STEP_SECONDS)
+            aiController?.update(STEP_SECONDS, eng, eng.aiField, eng.playerField)
+            accumulator -= STEP_SECONDS
+            steps++
+        }
+        // Too far behind to catch up (a long hitch): drop the backlog instead of fast-forwarding.
+        if (steps == MAX_STEPS_PER_FRAME) accumulator = 0f
+
+        playCues(eng)
+        if (eng.outcome != MatchOutcome.ONGOING && !resultRecorded) {
+            resultRecorded = true
+            profile.record(eng.outcome)
+            ghost = null
+        }
+        frame++
+    }
+
+    private fun playCues(eng: GameEngine) {
+        for (event in eng.cues) {
+            when {
+                event.field == null || event.field === eng.playerField -> sound.play(event.cue)
+                // From the opponent's lane the player only needs to hear their own sends landing.
+                event.cue == SoundCue.POP || event.cue == SoundCue.POP_BIG || event.cue == SoundCue.BOOM ->
+                    sound.play(event.cue, 0.3f)
+                event.cue == SoundCue.LEAK -> sound.play(SoundCue.COIN, 0.9f)
             }
         }
+        eng.cues.clear()
     }
 
-    private fun matchRunning(): Boolean =
-        loopJob?.isActive == true && engine?.outcome == MatchOutcome.ONGOING
+    private fun matchRunning(): Boolean = engine?.outcome == MatchOutcome.ONGOING
 
     fun pause() {
-        if (matchRunning()) paused = true
+        if (matchRunning()) {
+            paused = true
+            ghost = null
+        }
     }
 
     fun resume() {
         paused = false
     }
 
+    fun toggleFastForward() {
+        fastForward = !fastForward
+    }
+
     /** Abandons the current match. The engine is kept so the screen can finish animating out. */
     fun quitMatch() {
-        loopJob?.cancel()
         aiController = null
         paused = false
         armedTroop = null
         selectedTowerId = null
+        ghost = null
+    }
+
+    // ---- Sound and settings ---------------------------------------------------
+
+    fun playUi(cue: SoundCue) = sound.play(cue)
+
+    fun toggleSound() {
+        profile.toggleSound()
+        sound.enabled = profile.soundOn
+        playUi(SoundCue.CLICK)
     }
 
     // ---- Player interactions -------------------------------------------------
 
     fun armTroop(type: TroopType) {
+        val eng = engine ?: return
+        // An armed tower can always be put down again, even after the gold for it is gone.
+        if (armedTroop != type && eng.playerField.gold < type.cost) {
+            deny("Not enough gold for ${type.name}")
+            return
+        }
         armedTroop = if (armedTroop == type) null else type
         selectedTowerId = null
+        ghost = null
         notice = null
     }
 
-    fun onPlayerLaneTap(x: Float, y: Float) {
+    private fun canAct(): Boolean = !paused && matchRunning()
+
+    /** While a tower is armed, a finger on the lane previews where it would go. */
+    fun onLaneTouch(x: Float, y: Float) {
         val eng = engine ?: return
-        if (paused || eng.outcome != MatchOutcome.ONGOING) return
-        val nearest = eng.playerField.towers.minByOrNull { dist(it.x, it.y, x, y) }
-        if (nearest != null && dist(nearest.x, nearest.y, x, y) <= 6f) {
-            selectedTowerId = nearest.instanceId
-            armedTroop = null
-            return
-        }
+        val troop = armedTroop
+        if (troop == null || !canAct()) return
+        val (cx, cy) = eng.clampToLane(x, y)
+        ghost = Ghost(troop, cx, cy, eng.checkPlacement(eng.playerField, troop, cx, cy))
+    }
+
+    fun onLaneRelease(x: Float, y: Float) {
+        val eng = engine ?: return
+        ghost = null
+        if (!canAct()) return
         val troop = armedTroop
         if (troop == null) {
-            selectedTowerId = null
+            val nearest = eng.playerField.towers.minByOrNull { dist(it.x, it.y, x, y) }
+            selectedTowerId = nearest?.takeIf { dist(it.x, it.y, x, y) <= TOWER_TAP_RADIUS }?.instanceId
             return
         }
         when (eng.placeTower(eng.playerField, troop, x, y)) {
             PlaceResult.OK -> armedTroop = null
-            PlaceResult.NOT_ENOUGH_GOLD -> showNotice("Not enough gold for ${troop.name}")
-            PlaceResult.TOO_CLOSE -> showNotice("Too close to another tower")
-            PlaceResult.LANE_FULL -> showNotice("Tower limit reached (${GameData.MAX_TOWERS_PER_LANE})")
+            PlaceResult.NOT_ENOUGH_GOLD -> deny("Not enough gold for ${troop.name}")
+            PlaceResult.TOO_CLOSE -> deny("Too close to another tower")
+            PlaceResult.ON_PATH -> deny("Can't build on the track")
+            PlaceResult.LANE_FULL -> deny("Tower limit reached (${GameData.MAX_TOWERS_PER_LANE})")
             PlaceResult.MATCH_OVER -> Unit
         }
+    }
+
+    fun onLaneCancel() {
+        ghost = null
     }
 
     fun upgradeSelectedTower() {
         val eng = engine ?: return
         val id = selectedTowerId ?: return
-        eng.upgradeTower(eng.playerField, id)
+        if (!canAct()) return
+        if (!eng.upgradeTower(eng.playerField, id)) playUi(SoundCue.DENIED)
     }
 
     fun sellSelectedTower() {
         val eng = engine ?: return
         val id = selectedTowerId ?: return
+        if (!canAct()) return
         eng.sellTower(eng.playerField, id)
         selectedTowerId = null
+    }
+
+    fun cycleSelectedTargeting() {
+        val eng = engine ?: return
+        val id = selectedTowerId ?: return
+        if (eng.cycleTargeting(eng.playerField, id)) playUi(SoundCue.CLICK)
     }
 
     fun deselect() {
         selectedTowerId = null
         armedTroop = null
+        ghost = null
         notice = null
     }
 
     fun sendUnit(type: EnemySendType) {
         val eng = engine ?: return
-        if (paused) return
-        eng.sendEnemy(eng.playerField, eng.aiField, type)
+        if (!canAct()) return
+        when (eng.sendEnemy(eng.playerField, eng.aiField, type)) {
+            SendResult.LOCKED -> deny("${type.name} unlocks in round ${eng.unlockRoundOf(type)}")
+            SendResult.NOT_ENOUGH_GOLD -> deny("Not enough gold for ${type.name}")
+            SendResult.OK, SendResult.COOLING_DOWN, SendResult.MATCH_OVER -> Unit
+        }
     }
 
-    private fun showNotice(text: String) {
+    private fun deny(text: String) {
         notice = Notice(text, nextNoticeId++)
+        playUi(SoundCue.DENIED)
     }
 
     /** Clears [shown] unless a newer notice has replaced it in the meantime. */
@@ -204,7 +324,7 @@ class GameViewModel : ViewModel() {
     }
 
     override fun onCleared() {
-        loopJob?.cancel()
+        sound.release()
         super.onCleared()
     }
 }

@@ -1,30 +1,30 @@
 package com.towerduel.game.ui.screens
 
-import android.graphics.Paint
-import android.graphics.Typeface
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,28 +32,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.DrawStyle
-import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -67,26 +59,48 @@ import com.towerduel.game.engine.GameEngine
 import com.towerduel.game.engine.MatchOutcome
 import com.towerduel.game.engine.TowerInstance
 import com.towerduel.game.ui.GameViewModel
-import com.towerduel.game.ui.theme.AccentCyan
-import com.towerduel.game.ui.theme.AccentGold
-import com.towerduel.game.ui.theme.AccentRed
-import com.towerduel.game.ui.theme.AccentTeal
+import com.towerduel.game.ui.components.ChunkyButton
+import com.towerduel.game.ui.components.ChunkyTextButton
+import com.towerduel.game.ui.components.GameIcon
+import com.towerduel.game.ui.components.GameIconKind
+import com.towerduel.game.ui.components.GamePanel
+import com.towerduel.game.ui.components.HudPill
+import com.towerduel.game.ui.components.OutlinedText
+import com.towerduel.game.ui.components.ScreenBackground
+import com.towerduel.game.ui.components.TowerPortrait
+import com.towerduel.game.ui.components.UnitPortrait
+import com.towerduel.game.ui.render.LaneGestures
+import com.towerduel.game.ui.render.LaneView
 import com.towerduel.game.ui.theme.AiColor
-import com.towerduel.game.ui.theme.BgDark
-import com.towerduel.game.ui.theme.BgPanel
-import com.towerduel.game.ui.theme.BgPanelLight
-import com.towerduel.game.ui.theme.BgTop
-import com.towerduel.game.ui.theme.PanelEdge
-import com.towerduel.game.ui.theme.PathColor
+import com.towerduel.game.ui.theme.Cream
+import com.towerduel.game.ui.theme.Dim
+import com.towerduel.game.ui.theme.Ink
+import com.towerduel.game.ui.theme.Leaf
+import com.towerduel.game.ui.theme.Lilac
+import com.towerduel.game.ui.theme.NightDeep
+import com.towerduel.game.ui.theme.Panel
+import com.towerduel.game.ui.theme.PanelLight
 import com.towerduel.game.ui.theme.PlayerColor
-import com.towerduel.game.ui.theme.TextPrimary
-import com.towerduel.game.ui.theme.TextSecondary
+import com.towerduel.game.ui.theme.Sky
+import com.towerduel.game.ui.theme.Sun
+import com.towerduel.game.ui.theme.Tomato
 import kotlinx.coroutines.delay
+import java.util.Locale
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
-private val PoisonColor = Color(0xFF7BC96F)
+private val SEND_ROWS: List<List<EnemySendType>> = GameData.SENDABLE_UNITS.chunked(4)
+private val INCOME_LABELS: Map<String, String> = GameData.SENDABLE_UNITS.associate {
+    it.id to if (it.incomeBonus > 0f) String.format(Locale.US, "+%.2f/s", it.incomeBonus) else "no income"
+}
 
+private const val WARNING_SHOW_MS = 2600f
+private const val ROUND_BANNER_MS = 1500f
+
+/**
+ * The engine is plain mutable state, not Compose state. Every composable in this file that reads
+ * it starts with `viewModel.observeFrame()`, which re-runs it after each simulation tick. The
+ * screen itself does not, so the two lane canvases are not recomposed 60 times a second.
+ */
 @Composable
 fun BattleScreen(
     viewModel: GameViewModel,
@@ -94,23 +108,9 @@ fun BattleScreen(
     onMatchEnd: () -> Unit,
     onQuit: () -> Unit
 ) {
-    // The engine is plain mutable state, not Compose state: this read is what re-runs the
-    // screen (HUD numbers, chip affordability) after every simulation tick.
-    viewModel.observeFrame()
-
-    val outcome = eng.outcome
-    val paused = viewModel.paused
-
-    val currentOnMatchEnd by rememberUpdatedState(onMatchEnd)
-    LaunchedEffect(outcome) {
-        if (outcome != MatchOutcome.ONGOING) {
-            delay(1400)
-            currentOnMatchEnd()
-        }
-    }
-
-    BackHandler(enabled = outcome == MatchOutcome.ONGOING) {
-        if (paused) viewModel.resume() else viewModel.pause()
+    // The match runs on the display's frame clock for as long as this screen is showing.
+    LaunchedEffect(eng) {
+        while (true) withFrameNanos { viewModel.onFrame(it) }
     }
 
     // Leaving the app mid-match pauses it; the player resumes by hand when they come back.
@@ -132,333 +132,318 @@ fun BattleScreen(
     val notice = viewModel.notice
     LaunchedEffect(notice) {
         if (notice != null) {
-            delay(1600)
+            delay(1800)
             viewModel.clearNotice(notice)
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(BgTop, BgDark)))
-    ) {
+    val gestures = remember(viewModel) {
+        LaneGestures(
+            onPress = viewModel::onLaneTouch,
+            onDrag = viewModel::onLaneTouch,
+            onRelease = viewModel::onLaneRelease,
+            onCancel = viewModel::onLaneCancel
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(ScreenBackground)) {
         // Only the play area is inset; the overlays below dim the whole screen, bars included.
-        Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
-            TopHud(
-                timeRemainingSec = eng.timeRemainingSec(),
-                modifierName = eng.modifier.name,
-                onPause = { viewModel.pause() }
-            )
+        Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 8.dp)) {
+            TopHud(viewModel, eng)
 
-            LaneHeader(label = "OPPONENT", color = AiColor, lives = eng.aiField.lives, gold = eng.aiField.gold.toInt())
-            LaneCanvas(
-                field = eng.aiField,
-                eng = eng,
-                observeFrame = viewModel::observeFrame,
-                baseColor = AiColor,
-                interactive = false,
-                selectedTowerId = null,
-                showBuildZones = false,
-                onTap = { _, _ -> },
-                modifier = Modifier.fillMaxWidth().weight(0.9f)
-            )
+            LaneSlot(Modifier.weight(1f)) {
+                LaneView(eng, eng.aiField, AiColor, viewModel::observeFrame)
+                LaneOverlay(viewModel, eng, eng.aiField, "RIVAL", AiColor, isPlayer = false)
+            }
+            Spacer(Modifier.height(6.dp))
+            LaneSlot(Modifier.weight(1f)) {
+                LaneView(
+                    eng, eng.playerField, PlayerColor, viewModel::observeFrame,
+                    selectedTowerId = viewModel.selectedTowerId,
+                    ghost = viewModel.ghost,
+                    gestures = gestures
+                )
+                LaneOverlay(viewModel, eng, eng.playerField, "YOU", PlayerColor, isPlayer = true)
+            }
+            Spacer(Modifier.height(6.dp))
 
-            LaneHeader(label = "YOU", color = PlayerColor, lives = eng.playerField.lives, gold = eng.playerField.gold.toInt())
-            LaneCanvas(
-                field = eng.playerField,
-                eng = eng,
-                observeFrame = viewModel::observeFrame,
-                baseColor = PlayerColor,
-                interactive = true,
-                selectedTowerId = viewModel.selectedTowerId,
-                showBuildZones = viewModel.armedTroop != null,
-                onTap = { x, y -> viewModel.onPlayerLaneTap(x, y) },
-                modifier = Modifier.fillMaxWidth().weight(1.05f)
-            )
-
-            ContextBar(viewModel = viewModel, eng = eng)
-            ActionBar(viewModel = viewModel, gold = eng.playerField.gold)
+            BottomPanel(viewModel, eng)
         }
 
-        if (outcome != MatchOutcome.ONGOING) {
-            OutcomeBanner(outcome)
-        } else if (paused) {
-            PauseOverlay(onResume = { viewModel.resume() }, onQuit = onQuit)
-        }
+        MatchOverlays(viewModel, eng, onQuit, onMatchEnd)
     }
 }
 
+/** Centres a lane in its share of the screen at the lane's own aspect ratio. */
 @Composable
-private fun TopHud(timeRemainingSec: Int, modifierName: String, onPause: () -> Unit) {
+private fun LaneSlot(modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Box(modifier = Modifier.aspectRatio(LaneSpace.WIDTH / LaneSpace.HEIGHT), content = content)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Top bar
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun TopHud(viewModel: GameViewModel, eng: GameEngine) {
+    viewModel.observeFrame()
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(BgPanel.copy(alpha = 0.9f))
-            .border(1.dp, PanelEdge, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            "⏱ ${timeRemainingSec / 60}:${(timeRemainingSec % 60).toString().padStart(2, '0')}",
-            color = if (timeRemainingSec <= 15) AccentRed else TextPrimary,
-            fontWeight = FontWeight.Bold
+        SquareButton(GameIconKind.PAUSE, "Pause", onClick = viewModel::pause)
+        RoundPill(
+            round = eng.round,
+            totalRounds = eng.totalRounds,
+            suddenDeath = eng.suddenDeath,
+            // Whole tenths only, so the pill is not recomposed for changes nobody can see.
+            nextWaveFraction = ((1f - eng.secondsToNextRound() / GameData.ROUND_INTERVAL_SEC).coerceIn(0f, 1f) * 40f).roundToInt() / 40f,
+            modifierName = eng.modifier.name,
+            modifier = Modifier.weight(1f)
         )
-        Text(
-            modifierName,
-            color = AccentGold,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
+        if (!eng.suddenDeath) HudPill(GameIconKind.CLOCK, formatClock(eng.timeRemainingSec()))
+        SquareButton(
+            GameIconKind.FAST,
+            if (viewModel.fastForward) "Normal speed" else "Double speed",
+            onClick = viewModel::toggleFastForward,
+            color = if (viewModel.fastForward) Sun else PanelLight
         )
-        SmallActionButton("PAUSE", enabled = true, color = TextSecondary, onClick = onPause)
     }
 }
 
 @Composable
-private fun LaneHeader(label: String, color: Color, lives: Int, gold: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("♥ $lives", color = TextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-            Text("$ $gold", color = AccentGold, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun LaneCanvas(
-    field: Battlefield,
-    eng: GameEngine,
-    observeFrame: () -> Int,
-    baseColor: Color,
-    interactive: Boolean,
-    selectedTowerId: Long?,
-    showBuildZones: Boolean,
-    onTap: (Float, Float) -> Unit,
-    modifier: Modifier
+private fun RoundPill(
+    round: Int, totalRounds: Int, suddenDeath: Boolean, nextWaveFraction: Float,
+    modifierName: String, modifier: Modifier
 ) {
-    val pathPoints = eng.map.pathPoints
-    val currentOnTap by rememberUpdatedState(onTap)
-    val textPaint = remember {
-        Paint().apply {
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.DEFAULT_BOLD
-            isAntiAlias = true
-        }
-    }
-    val baseModifier = modifier
-        .padding(horizontal = 10.dp, vertical = 2.dp)
-        .clip(RoundedCornerShape(14.dp))
-        .background(BgPanelLight)
-        .border(1.dp, PanelEdge, RoundedCornerShape(14.dp))
-    val canvasModifier = if (interactive) {
-        baseModifier.pointerInput(Unit) {
-            detectTapGestures { offset ->
-                val vx = offset.x / size.width.toFloat() * LaneSpace.WIDTH
-                val vy = offset.y / size.height.toFloat() * LaneSpace.HEIGHT
-                currentOnTap(vx, vy)
-            }
-        }
-    } else baseModifier
-
-    Canvas(modifier = canvasModifier) {
-        // Read in the draw phase so every simulation tick repaints the lane.
-        observeFrame()
-
-        // The lane is stretched to fill its slot, so one lane unit differs in px per axis.
-        val sx = size.width / LaneSpace.WIDTH
-        val sy = size.height / LaneSpace.HEIGHT
-
-        // Path
-        val path = Path()
-        pathPoints.forEachIndexed { i, (x, y) ->
-            val px = x * sx; val py = y * sy
-            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-        }
-        drawPath(
-            path, color = PathColor,
-            style = Stroke(width = 9.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
-        )
-
-        // The base this lane's enemies are marching toward
-        val (endX, endY) = pathPoints.last()
-        drawCircle(baseColor.copy(alpha = 0.25f), radius = 13.dp.toPx(), center = Offset(endX * sx, endY * sy))
-        drawCircle(baseColor, radius = 13.dp.toPx(), center = Offset(endX * sx, endY * sy), style = Stroke(width = 2.dp.toPx()))
-
-        // Where a new tower can't go while one is armed
-        if (showBuildZones) {
-            for (t in field.towers) {
-                drawLaneOval(AccentRed.copy(alpha = 0.12f), t.x, t.y, GameData.MIN_TOWER_SPACING, sx, sy)
-            }
-        }
-
-        // Tracers
-        for (tr in field.tracers) {
-            val alpha = (1f - tr.ageMs / 160f).coerceIn(0f, 1f)
-            drawLine(
-                color = AccentGold.copy(alpha = alpha),
-                start = Offset(tr.fromX * sx, tr.fromY * sy),
-                end = Offset(tr.toX * sx, tr.toY * sy),
-                strokeWidth = 2.dp.toPx()
+    val shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(NightDeep.copy(alpha = 0.82f))
+            .border(2.dp, Ink, shape)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedText(
+                when {
+                    suddenDeath -> "SUDDEN DEATH"
+                    round == 0 -> "GET READY"
+                    else -> "ROUND $round/$totalRounds"
+                },
+                fontSize = 16.sp,
+                color = if (suddenDeath) Tomato else Cream,
+                modifier = Modifier.offset(y = 1.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                modifierName, color = Sun, style = MaterialTheme.typography.labelSmall,
+                maxLines = 1, overflow = TextOverflow.Ellipsis
             )
         }
-
-        // Towers
-        val towerRadius = 11.dp.toPx()
-        for (t in field.towers) {
-            val center = Offset(t.x * sx, t.y * sy)
-            if (t.instanceId == selectedTowerId) {
-                val reach = eng.towerReach(t)
-                drawLaneOval(t.type.color.copy(alpha = 0.15f), t.x, t.y, reach, sx, sy)
-                drawLaneOval(t.type.color.copy(alpha = 0.5f), t.x, t.y, reach, sx, sy, Stroke(width = 1.dp.toPx()))
-            }
-            drawCircle(t.type.color, radius = towerRadius, center = center)
-            if (t.upgraded) {
-                drawCircle(AccentGold, radius = towerRadius, center = center, style = Stroke(width = 2.dp.toPx()))
-            }
-            drawCenteredText(textPaint, t.type.glyph, center.x, center.y, 14.dp.toPx(), Color.Black.toArgb())
-        }
-
-        // Enemies
-        for (e in field.incomingEnemies) {
-            val center = Offset(e.x * sx, e.y * sy)
-            val radius = (6f + sqrt(e.type.maxHp) / 3f).coerceIn(7f, 12f).dp.toPx()
-            drawCircle(e.type.color, radius = radius, center = center)
-            drawCenteredText(textPaint, e.type.glyph, center.x, center.y, radius * 1.3f, Color.Black.toArgb())
-
-            val statusColor = when {
-                eng.elapsedMs < e.stunExpiresAtMs -> Color.White
-                eng.elapsedMs < e.slowExpiresAtMs -> AccentCyan
-                eng.elapsedMs < e.dotExpiresAtMs -> PoisonColor
-                else -> null
-            }
-            if (statusColor != null) {
-                drawCircle(statusColor, radius = radius + 1.5.dp.toPx(), center = center, style = Stroke(width = 1.5.dp.toPx()))
-            }
-
-            val hpFrac = (e.hp / e.type.maxHp).coerceIn(0f, 1f)
-            val barWidth = radius * 2f + 4.dp.toPx()
-            val barTopLeft = Offset(center.x - barWidth / 2f, center.y - radius - 7.dp.toPx())
-            drawRect(Color.Black.copy(alpha = 0.4f), topLeft = barTopLeft, size = Size(barWidth, 3.dp.toPx()))
-            drawRect(AccentRed, topLeft = barTopLeft, size = Size(barWidth * hpFrac, 3.dp.toPx()))
+        Spacer(Modifier.height(3.dp))
+        // Fills up as the next wave gets closer.
+        Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(50)).background(Ink)) {
+            Box(
+                Modifier.fillMaxWidth(nextWaveFraction).fillMaxHeight().clip(RoundedCornerShape(50))
+                    .background(if (suddenDeath) Tomato else Sky)
+            )
         }
     }
 }
 
-/** A circle of [radius] lane units, drawn as the oval it becomes once the lane is stretched. */
-private fun DrawScope.drawLaneOval(
-    color: Color, x: Float, y: Float, radius: Float, sx: Float, sy: Float,
-    style: DrawStyle = Fill
-) {
-    drawOval(
-        color,
-        topLeft = Offset((x - radius) * sx, (y - radius) * sy),
-        size = Size(radius * 2f * sx, radius * 2f * sy),
-        style = style
-    )
-}
-
-private fun DrawScope.drawCenteredText(paint: Paint, text: String, x: Float, y: Float, sizePx: Float, colorArgb: Int) {
-    paint.color = colorArgb
-    paint.textSize = sizePx
-    drawContext.canvas.nativeCanvas.drawText(text, x, y + sizePx * 0.35f, paint)
-}
-
-/** Fixed-height slot under the lanes, so selecting a tower never resizes the battlefield. */
 @Composable
-private fun ContextBar(viewModel: GameViewModel, eng: GameEngine) {
-    val selected = viewModel.selectedTowerId?.let { id -> eng.playerField.towers.find { it.instanceId == id } }
-    val armed = viewModel.armedTroop
-    val notice = viewModel.notice
+private fun SquareButton(
+    icon: GameIconKind, description: String, onClick: () -> Unit, color: Color = PanelLight, size: Dp = 46.dp
+) {
+    ChunkyButton(
+        onClick, Modifier.size(size), color = color, corner = 14.dp, depth = 4.dp,
+        contentPadding = PaddingValues(0.dp), description = description
+    ) {
+        GameIcon(icon, Modifier.size(size * 0.46f))
+    }
+}
 
+private fun formatClock(seconds: Int): String = "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
+
+// ---------------------------------------------------------------------------
+// What floats over a lane: whose it is, its lives, and warnings
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun BoxScope.LaneOverlay(
+    viewModel: GameViewModel, eng: GameEngine, field: Battlefield,
+    label: String, team: Color, isPlayer: Boolean
+) {
+    viewModel.observeFrame()
+    // Units walk in from the left edge; the tag takes whichever left corner they do not use.
+    val tagCorner = if (eng.path.ys[0] < LaneSpace.HEIGHT / 2f) Alignment.BottomStart else Alignment.TopStart
+    Box(Modifier.matchParentSize().padding(6.dp)) {
+        Row(
+            modifier = Modifier.align(tagCorner),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TeamTag(label, team)
+            HudPill(GameIconKind.HEART, "${field.lives}", fontSize = 15.sp, textColor = if (field.lives <= eng.startingLives / 4) Tomato else Cream)
+            // The rival's purse is public: a fat one means a push is coming.
+            if (!isPlayer) HudPill(GameIconKind.COIN, "${field.gold.toInt()}", fontSize = 15.sp)
+        }
+
+        if (isPlayer) {
+            val sinceRound = eng.elapsedMs - eng.roundStartedAtMs
+            val warning = field.warning
+            val sinceWarning = if (warning != null) eng.elapsedMs - warning.atMs else Float.MAX_VALUE
+            when {
+                warning != null && sinceWarning < WARNING_SHOW_MS ->
+                    WarningBanner(warning.unit, fade(sinceWarning, WARNING_SHOW_MS), Modifier.align(Alignment.Center))
+                eng.round > 0 && sinceRound < ROUND_BANNER_MS ->
+                    OutlinedText(
+                        if (eng.round > eng.totalRounds) "SUDDEN DEATH!" else "ROUND ${eng.round}",
+                        fontSize = 34.sp,
+                        color = if (eng.round > eng.totalRounds) Tomato else Sun,
+                        modifier = Modifier.align(Alignment.Center).alpha(fade(sinceRound, ROUND_BANNER_MS))
+                    )
+            }
+        }
+    }
+}
+
+/** 1 for most of [totalMs], dropping to 0 over the last quarter. Rounded so it changes in visible steps only. */
+private fun fade(ageMs: Float, totalMs: Float): Float =
+    (((totalMs - ageMs) / (totalMs * 0.25f)).coerceIn(0f, 1f) * 20f).roundToInt() / 20f
+
+@Composable
+private fun TeamTag(label: String, team: Color) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        modifier = Modifier.clip(shape).background(team).border(2.dp, Ink, shape).padding(horizontal = 9.dp, vertical = 3.dp)
+    ) {
+        OutlinedText(label, fontSize = 13.sp, modifier = Modifier.offset(y = 1.dp))
+    }
+}
+
+@Composable
+private fun WarningBanner(unit: EnemySendType, alpha: Float, modifier: Modifier) {
+    val shape = RoundedCornerShape(16.dp)
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .height(52.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(BgPanel.copy(alpha = 0.9f))
-            .border(1.dp, PanelEdge, RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp),
+        modifier = modifier
+            .alpha(alpha)
+            .clip(shape)
+            .background(Tomato)
+            .border(2.5.dp, Ink, shape)
+            .padding(start = 6.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        when {
-            selected != null -> {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (selected.upgraded) "${selected.type.name} ★" else selected.type.name,
-                        color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        towerStatLine(selected, eng),
-                        color = TextSecondary, fontSize = 11.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
+        UnitPortrait(unit, Modifier.size(38.dp))
+        Spacer(Modifier.width(6.dp))
+        OutlinedText("${unit.name.uppercase()} INCOMING!", fontSize = 19.sp, modifier = Modifier.offset(y = 1.5.dp))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bottom panel: purse, build or tower controls, sends
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
+    viewModel.observeFrame()
+    val field = eng.playerField
+    val gold = field.gold
+    val selected = viewModel.selectedTowerId?.let { id -> field.towers.find { it.instanceId == id } }
+
+    GamePanel(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatusRow(viewModel, eng, selected)
+
+            Box(modifier = Modifier.fillMaxWidth().height(74.dp)) {
+                if (selected != null) {
+                    TowerControls(viewModel, eng, selected, gold)
+                } else {
+                    Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (troop in viewModel.pickedTroops) {
+                            BuildCard(
+                                troop = troop,
+                                affordable = gold >= troop.cost,
+                                armed = viewModel.armedTroop == troop,
+                                onClick = { viewModel.armTroop(troop) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
-                Spacer(Modifier.width(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (!selected.upgraded) {
-                        SmallActionButton(
-                            "Upgrade ${selected.type.upgradeCost}g",
-                            enabled = eng.playerField.gold >= selected.type.upgradeCost,
-                            color = AccentTeal,
-                            onClick = { viewModel.upgradeSelectedTower() }
+            }
+
+            for (row in SEND_ROWS) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (unit in row) {
+                        SendChip(
+                            unit = unit,
+                            affordable = gold >= unit.cost,
+                            unlocked = eng.isUnlocked(unit),
+                            unlockRound = eng.unlockRoundOf(unit),
+                            // Coarse steps: enough for a smooth-looking refill without a recomposition per frame.
+                            cooldown = (eng.sendCooldownFraction(field, unit) * 12f).roundToInt() / 12f,
+                            onClick = { viewModel.sendUnit(unit) },
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                    SmallActionButton(
-                        "Sell +${eng.sellRefund(selected).toInt()}g",
-                        enabled = true, color = AccentRed,
-                        onClick = { viewModel.sellSelectedTower() }
-                    )
-                    SmallActionButton("✕", enabled = true, color = TextSecondary, onClick = { viewModel.deselect() })
                 }
             }
-            armed != null -> {
-                Text(
-                    notice?.text ?: "Tap your lane to place ${armed.name}",
-                    color = if (notice != null) AccentRed else armed.color,
-                    fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(Modifier.width(8.dp))
-                SmallActionButton("Cancel", enabled = true, color = TextSecondary, onClick = { viewModel.deselect() })
-            }
-            else -> {
-                Text(
-                    "Pick a tower to build, or send units at your opponent.",
-                    color = TextSecondary, fontSize = 13.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
         }
+    }
+}
+
+@Composable
+private fun StatusRow(viewModel: GameViewModel, eng: GameEngine, selected: TowerInstance?) {
+    val field = eng.playerField
+    val notice = viewModel.notice
+    val armed = viewModel.armedTroop
+    Row(modifier = Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
+        HudPill(GameIconKind.COIN, "${field.gold.toInt()}", fontSize = 19.sp)
+        Spacer(Modifier.width(6.dp))
+        GameIcon(GameIconKind.INCOME, Modifier.size(17.dp))
+        Spacer(Modifier.width(2.dp))
+        OutlinedText("+${oneDecimal(eng.incomePerSec(field))}/s", fontSize = 13.sp, color = Leaf, modifier = Modifier.offset(y = 1.dp))
+        Spacer(Modifier.width(8.dp))
+
+        val (message, color) = when {
+            notice != null -> notice.text to Tomato
+            selected != null -> towerStatLine(selected, eng) to Cream
+            armed != null -> "Touch your lane to place ${armed.name}" to Sun
+            field.towers.isEmpty() -> "Pick a tower, then touch your lane" to Lilac
+            else -> "Sends raise your income" to Lilac
+        }
+        Text(
+            message, color = color, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            lineHeight = 14.sp, fontSize = 12.sp,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
 private fun towerStatLine(tower: TowerInstance, eng: GameEngine): String {
     val type = tower.type
     val range = eng.towerReach(tower).roundToInt()
-    return when {
-        type.incomeBonusPerSecond > 0f -> "+${oneDecimal(tower.effectiveIncome)} gold/s"
-        type.auraDamageBonusPct > 0f -> "+${tower.effectiveAuraBonus.roundToInt()}% damage to towers in range"
+    val head = if (tower.level > 0) "${type.name} Lv ${tower.level + 1}" else type.name
+    val stats = when {
+        type.incomeBonusPerSecond > 0f -> "+${oneDecimal(tower.income)} gold/s"
+        type.auraDamageBonusPct > 0f -> "+${tower.auraPct.roundToInt()}% damage to towers in range"
         // Their hit damage is a rounding error; the effect is the point.
-        type.slowFactor > 0f -> "Slows ${(tower.effectiveSlow * 100f).roundToInt()}% · RNG $range"
-        type.dotDamagePerSecond > 0f -> "Poison ${oneDecimal(tower.effectiveDotDps)}/s · RNG $range"
+        type.slowFactor > 0f -> "Slows ${(tower.slow * 100f).roundToInt()}% · range $range"
+        type.dotDamagePerSecond > 0f -> "Poison ${oneDecimal(tower.dotDps)}/s · range $range"
         else -> {
-            val damage = (tower.effectiveDamage * eng.modifier.damageMultiplier).roundToInt()
-            val shotsPerSec = oneDecimal(1000f / tower.effectiveFireRateMs)
-            "DMG $damage · RNG $range · $shotsPerSec/s"
+            val damage = eng.shotDamage(tower).roundToInt()
+            val shotsPerSec = oneDecimal(1000f / tower.reloadMs)
+            "DMG $damage · range $range · $shotsPerSec/s"
         }
     }
+    val kills = if (type.isAttacker) " · ${tower.kills} pops" else ""
+    return "$head\n$stats$kills"
 }
 
 private fun oneDecimal(value: Float): String {
@@ -467,142 +452,210 @@ private fun oneDecimal(value: Float): String {
 }
 
 @Composable
-private fun SmallActionButton(label: String, enabled: Boolean, color: Color, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .heightIn(min = 36.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (enabled) color.copy(alpha = 0.18f) else BgPanelLight)
-            .border(1.dp, color.copy(alpha = if (enabled) 0.85f else 0.2f), RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.Center
+private fun BuildCard(troop: TroopType, affordable: Boolean, armed: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    ChunkyButton(
+        onClick, modifier.fillMaxHeight(),
+        color = if (armed) Sun else PanelLight, corner = 14.dp,
+        contentPadding = PaddingValues(horizontal = 5.dp)
     ) {
-        Text(label, color = if (enabled) color else TextSecondary, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun ActionBar(viewModel: GameViewModel, gold: Float) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, bottom = 10.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(BgPanel.copy(alpha = 0.92f))
-            .border(1.dp, PanelEdge, RoundedCornerShape(18.dp))
-            .padding(vertical = 8.dp)
-    ) {
-        Text("BUILD", color = TextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            for (troop in viewModel.playerDraft) {
-                val armed = viewModel.armedTroop == troop
-                BuildChip(
-                    troop = troop,
-                    affordable = gold >= troop.cost,
-                    armed = armed,
-                    onClick = { viewModel.armTroop(troop) },
-                    modifier = Modifier.weight(1f)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TowerPortrait(troop, Modifier.size(46.dp).alpha(if (affordable || armed) 1f else 0.4f))
+            Spacer(Modifier.width(3.dp))
+            Column {
+                Text(
+                    troop.name, color = if (armed) Ink else if (affordable) Cream else Dim,
+                    fontWeight = FontWeight.Bold, fontSize = 11.5.sp, lineHeight = 12.sp,
+                    style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis
                 )
-            }
-        }
-        Text("SEND", color = TextSecondary, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 10.dp, top = 4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            for (send in GameData.ENEMY_SENDS) {
-                SendChip(
-                    send = send,
-                    affordable = gold >= send.cost,
-                    onClick = { viewModel.sendUnit(send) },
-                    modifier = Modifier.weight(1f)
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GameIcon(GameIconKind.COIN, Modifier.size(14.dp))
+                    Spacer(Modifier.width(2.dp))
+                    OutlinedText(
+                        "${troop.cost}", fontSize = 16.sp, modifier = Modifier.offset(y = 1.dp),
+                        color = if (armed) Cream else if (affordable) Sun else Dim
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun BuildChip(troop: TroopType, affordable: Boolean, armed: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (armed) troop.color.copy(alpha = 0.22f) else BgPanelLight)
-            .border(1.dp, if (armed) troop.color else Color.Transparent, RoundedCornerShape(12.dp))
-            // An armed chip stays tappable so it can always be un-armed, even after gold drops.
-            .clickable(enabled = affordable || armed) { onClick() }
-            .padding(vertical = 6.dp, horizontal = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+private fun TowerControls(viewModel: GameViewModel, eng: GameEngine, tower: TowerInstance, gold: Float) {
+    val tier = tower.nextUpgrade
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(troop.glyph, color = if (affordable) troop.color else TextSecondary, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge)
-        Text(
-            troop.name, color = if (affordable) TextPrimary else TextSecondary,
-            fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-        )
-        Text("${troop.cost}g", color = if (affordable) AccentGold else TextSecondary, style = MaterialTheme.typography.labelSmall)
+        TowerPortrait(tower.type, Modifier.size(54.dp), level = tower.level)
+
+        if (eng.usesTargeting(tower.type)) {
+            ChunkyButton(
+                viewModel::cycleSelectedTargeting, Modifier.width(64.dp).fillMaxHeight(),
+                color = Sky, corner = 14.dp, sound = null, contentPadding = PaddingValues(0.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    GameIcon(GameIconKind.TARGET, Modifier.size(20.dp))
+                    OutlinedText(tower.targeting.label.uppercase(), fontSize = 13.sp)
+                }
+            }
+        }
+
+        if (tier != null) {
+            val affordable = gold >= tier.cost
+            ChunkyButton(
+                viewModel::upgradeSelectedTower, Modifier.weight(1f).fillMaxHeight(),
+                color = Leaf, enabled = affordable, corner = 14.dp, sound = null,
+                contentPadding = PaddingValues(horizontal = 8.dp)
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(GameIconKind.UP, Modifier.size(13.dp), tint = if (affordable) Cream else Dim)
+                        Spacer(Modifier.width(3.dp))
+                        OutlinedText(tier.name.uppercase(), fontSize = 12.5.sp, color = if (affordable) Cream else Dim, modifier = Modifier.offset(y = 1.dp))
+                    }
+                    Text(
+                        tier.blurb, color = if (affordable) Ink else Dim, fontSize = 10.5.sp, lineHeight = 11.sp,
+                        fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(GameIconKind.COIN, Modifier.size(13.dp))
+                        Spacer(Modifier.width(2.dp))
+                        OutlinedText("${tier.cost}", fontSize = 14.sp, color = if (affordable) Sun else Dim, modifier = Modifier.offset(y = 1.dp))
+                    }
+                }
+            }
+        } else {
+            Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                OutlinedText(if (tower.type.maxLevel > 0) "MAX LEVEL" else "NO UPGRADES", fontSize = 17.sp, color = Sun)
+            }
+        }
+
+        ChunkyButton(
+            viewModel::sellSelectedTower, Modifier.width(60.dp).fillMaxHeight(),
+            color = Tomato, corner = 14.dp, sound = null, contentPadding = PaddingValues(0.dp)
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                OutlinedText("SELL", fontSize = 13.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    GameIcon(GameIconKind.COIN, Modifier.size(12.dp))
+                    Spacer(Modifier.width(2.dp))
+                    OutlinedText("${eng.sellRefund(tower)}", fontSize = 13.sp, color = Sun, modifier = Modifier.offset(y = 1.dp))
+                }
+            }
+        }
+
+        SquareButton(GameIconKind.CLOSE, "Close tower controls", onClick = viewModel::deselect, size = 38.dp)
     }
 }
 
 @Composable
-private fun SendChip(send: EnemySendType, affordable: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(BgPanelLight)
-            .border(1.dp, if (affordable) send.color.copy(alpha = 0.4f) else Color.Transparent, RoundedCornerShape(12.dp))
-            .clickable(enabled = affordable) { onClick() }
-            .padding(vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+private fun SendChip(
+    unit: EnemySendType, affordable: Boolean, unlocked: Boolean, unlockRound: Int, cooldown: Float,
+    onClick: () -> Unit, modifier: Modifier
+) {
+    val ready = affordable && cooldown <= 0f
+    ChunkyButton(
+        onClick, modifier.height(52.dp),
+        color = if (unlocked) PanelLight else Panel, corner = 12.dp, depth = 4.dp, sound = null,
+        contentPadding = PaddingValues(horizontal = 3.dp)
     ) {
-        Text(send.glyph, color = if (affordable) send.color else TextSecondary, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
-        Text(
-            send.name.substringBefore(' '), color = if (affordable) TextPrimary else TextSecondary,
-            fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Clip
-        )
-        Text("${send.cost}g", color = if (affordable) AccentGold else TextSecondary, style = MaterialTheme.typography.labelSmall)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (!unlocked) {
+                GameIcon(GameIconKind.LOCK, Modifier.padding(horizontal = 6.dp).size(20.dp), tint = Dim)
+                Column {
+                    Text(unit.name, color = Dim, fontSize = 10.5.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    Text("Round $unlockRound", color = Dim, fontSize = 10.sp, lineHeight = 11.sp, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            } else {
+                // Refills from pale to full as the cooldown runs out.
+                UnitPortrait(unit, Modifier.size(34.dp).alpha(if (!affordable) 0.4f else 1f - 0.65f * cooldown))
+                Spacer(Modifier.width(2.dp))
+                Column {
+                    Text(
+                        unit.name, color = if (ready) Cream else Dim, fontSize = 10.5.sp, lineHeight = 11.sp,
+                        fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Clip
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GameIcon(GameIconKind.COIN, Modifier.size(11.dp))
+                        Spacer(Modifier.width(2.dp))
+                        OutlinedText("${unit.cost}", fontSize = 13.5.sp, color = if (affordable) Sun else Dim, modifier = Modifier.offset(y = 1.dp))
+                    }
+                    Text(
+                        INCOME_LABELS[unit.id] ?: "", color = if (unit.incomeBonus > 0f) Leaf else Dim,
+                        fontSize = 9.5.sp, lineHeight = 10.sp, style = MaterialTheme.typography.labelSmall, maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Full-screen overlays
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun MatchOverlays(viewModel: GameViewModel, eng: GameEngine, onQuit: () -> Unit, onMatchEnd: () -> Unit) {
+    viewModel.observeFrame()
+    val outcome = eng.outcome
+    val paused = viewModel.paused
+
+    val currentOnMatchEnd by rememberUpdatedState(onMatchEnd)
+    LaunchedEffect(outcome) {
+        if (outcome != MatchOutcome.ONGOING) {
+            delay(1900)
+            currentOnMatchEnd()
+        }
+    }
+
+    BackHandler(enabled = outcome == MatchOutcome.ONGOING) {
+        if (paused) viewModel.resume() else viewModel.pause()
+    }
+
+    if (outcome != MatchOutcome.ONGOING) {
+        OutcomeBanner(outcome)
+    } else if (paused) {
+        PauseOverlay(viewModel, eng, onQuit)
     }
 }
 
 @Composable
-private fun PauseOverlay(onResume: () -> Unit, onQuit: () -> Unit) {
+private fun PauseOverlay(viewModel: GameViewModel, eng: GameEngine, onQuit: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.6f))
+            .background(Ink.copy(alpha = 0.72f))
             // Swallow taps so nothing underneath can be built or sent while paused.
             .pointerInput(Unit) { detectTapGestures { } },
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(0.78f)
-                .clip(RoundedCornerShape(24.dp))
-                .background(BgPanel)
-                .border(1.dp, PanelEdge, RoundedCornerShape(24.dp))
-                .padding(22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("PAUSED", style = MaterialTheme.typography.headlineMedium, color = TextPrimary)
-            Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = onResume,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentTeal, contentColor = BgDark)
-            ) {
-                Text("RESUME", fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onQuit,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Text("QUIT MATCH", color = AccentRed, fontWeight = FontWeight.Bold)
+        GamePanel(modifier = Modifier.fillMaxWidth(0.82f), corner = 24.dp) {
+            Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                OutlinedText("PAUSED", fontSize = 34.sp, color = Sun)
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "${eng.modifier.name}: ${eng.modifier.description}",
+                    color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(18.dp))
+                ChunkyTextButton("RESUME", viewModel::resume, Modifier.fillMaxWidth().height(58.dp), color = Leaf)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ChunkyTextButton("QUIT", onQuit, Modifier.weight(1f).height(54.dp), color = Tomato, fontSize = 19.sp)
+                    ChunkyButton(
+                        viewModel::toggleSound, Modifier.size(width = 64.dp, height = 54.dp),
+                        color = PanelLight, sound = null, contentPadding = PaddingValues(0.dp),
+                        description = if (viewModel.profile.soundOn) "Turn sound off" else "Turn sound on"
+                    ) {
+                        GameIcon(
+                            if (viewModel.profile.soundOn) GameIconKind.SOUND_ON else GameIconKind.SOUND_OFF,
+                            Modifier.size(26.dp)
+                        )
+                    }
+                }
             }
         }
     }
@@ -611,17 +664,19 @@ private fun PauseOverlay(onResume: () -> Unit, onQuit: () -> Unit) {
 @Composable
 private fun OutcomeBanner(outcome: MatchOutcome) {
     val (headline, color) = when (outcome) {
-        MatchOutcome.PLAYER_WIN -> "VICTORY" to AccentTeal
-        MatchOutcome.AI_WIN -> "DEFEAT" to AccentRed
-        else -> "DRAW" to AccentGold
+        MatchOutcome.PLAYER_WIN -> "VICTORY!" to Sun
+        MatchOutcome.AI_WIN -> "DEFEAT" to Tomato
+        else -> "DRAW" to Cream
     }
+    val scale = remember { Animatable(0.2f) }
+    LaunchedEffect(Unit) { scale.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 260f)) }
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
+            .background(Ink.copy(alpha = 0.62f))
             .pointerInput(Unit) { detectTapGestures { } },
         contentAlignment = Alignment.Center
     ) {
-        Text(headline, style = MaterialTheme.typography.headlineLarge, color = color)
+        OutlinedText(headline, fontSize = 60.sp, color = color, modifier = Modifier.scale(scale.value))
     }
 }

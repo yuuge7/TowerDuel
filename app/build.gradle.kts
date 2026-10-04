@@ -51,6 +51,11 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // Tells Compose the game's content classes are immutable, so UI that takes them can be skipped.
+        freeCompilerArgs += listOf(
+            "-P",
+            "plugin:androidx.compose.compiler.plugins.kotlin:stabilityConfigurationPath=${projectDir.absolutePath}/compose_stability.conf"
+        )
     }
 
     buildFeatures {
@@ -64,6 +69,13 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    testOptions {
+        unitTests.all {
+            // The balance simulation prints a results table; show it in the build log.
+            it.testLogging.showStandardStreams = true
         }
     }
 }
@@ -84,4 +96,6 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    testImplementation("junit:junit:4.13.2")
 }

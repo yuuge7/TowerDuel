@@ -23,7 +23,7 @@ fun AppNavHost(viewModel: GameViewModel) {
     NavHost(navController = navController, startDestination = "menu") {
         composable("menu") { entry ->
             MainMenuScreen(
-                initialDifficulty = viewModel.selectedDifficulty,
+                viewModel = viewModel,
                 onStart = { difficulty ->
                     if (entry.isResumed()) {
                         viewModel.rollNewMatchSetup(difficulty)
@@ -41,7 +41,7 @@ fun AppNavHost(viewModel: GameViewModel) {
             DraftScreen(
                 viewModel = viewModel,
                 onDeploy = {
-                    if (entry.isResumed()) {
+                    if (entry.isResumed() && viewModel.draftProblem == null) {
                         viewModel.startMatch()
                         navController.navigate("battle") {
                             popUpTo("menu")
@@ -81,6 +81,7 @@ fun AppNavHost(viewModel: GameViewModel) {
                 return@composable
             }
             ResultsScreen(
+                viewModel = viewModel,
                 eng = eng,
                 onPlayAgain = {
                     if (entry.isResumed()) {

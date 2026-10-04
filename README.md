@@ -3,11 +3,12 @@
 [![Release](../../actions/workflows/release.yml/badge.svg)](../../actions/workflows/release.yml)
 
 A tower-defense duel for Android. You and an AI opponent each defend a lane
-with a random hand of towers while sending units down the other side's lane.
-Whoever runs out of lives first loses.
+with a drafted hand of towers, survive the same escalating waves, and send
+units down the other side's lane. Whoever runs out of lives first loses.
 
-Native Kotlin + Jetpack Compose. No game engine, no external art, no network
-access, no ads.
+Native Kotlin + Jetpack Compose. No game engine, no network access, no ads.
+Every sprite is drawn in code and every sound is synthesized at startup. The
+only bundled assets are two open-licensed fonts.
 
 **[Download the latest APK](../../releases/latest)**
 
@@ -19,28 +20,44 @@ access, no ads.
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
 - [Extending the game](#extending-the-game)
+- [Tests](#tests)
 - [Releases and versioning](#releases-and-versioning)
 - [Release signing](#release-signing)
 - [Contributing](#contributing)
+- [Credits](#credits)
 
 ## Features
 
-- **Random draft every match.** You and the AI are each dealt 3 towers from a
-  pool of 12, independently, so neither side knows what the other holds.
-- **12 towers** with distinct roles: Sentry, Sniper, Frost Spire, Bomb Tower,
-  Gatling, Chain Lightning, Poison Totem, Gold Mine, Stun Turret, Anti-Air
-  Net, Support Beacon, Mortar. Splash, chaining, slows, stuns, damage over
-  time, damage auras and pure economy are all covered.
-- **7 sendable units** shared by both sides: Runner, Grunt, Tank, Swarm Pack,
-  Flyer, Healer, Boss.
-- **3 maps** (S-Curve, Zigzag, Diagonal Sweep) with different chokepoints.
+- **Draft your defense.** Each match offers you 5 of the 12 towers and you
+  keep 3. The AI drafts from its own offer, so neither side knows what the
+  other holds until the towers go down.
+- **12 towers**, each with a two-step upgrade track: Sentry, Sniper, Frost
+  Spire, Bomb Tower, Gatling, Tesla Coil, Poison Totem, Gold Mine, Stun
+  Turret, Flak Net, Beacon, Mortar. Splash, chaining, slows, stuns, damage
+  over time, damage auras and pure economy are all covered.
+- **8 sendable units** shared by both sides: Runner, Grunt, Swarm, Flyer,
+  Tank, Healer, Splitter, Boss. The bigger ones unlock as the rounds pass,
+  and most sends raise your income for the rest of the match.
+- **Waves.** Every 20 seconds the same wave hits both lanes, each tougher
+  than the last. After the final round comes sudden death, where waves grow
+  faster and tougher until one side breaks.
+- **4 maps** with their own look and track: Clover Bend (meadow), Sidewinder
+  (dunes), Icicle Pass (snow), Cinder Loop (lava, with a track that crosses
+  itself).
 - **6 match modifiers**, one rolled per match: Rush Hour, Gold Rush, Glass
   Cannons, Fortified, Blitz, Iron Lives.
-- **An AI with a personality.** On top of the difficulty you pick (Easy,
-  Medium, Hard), the AI rolls a Rusher, Turtle or Balanced play style.
-- **Short matches.** 4 minutes by default, 2 under the Blitz modifier.
+- **An AI that plays the same game you do.** On top of the difficulty you
+  pick (Easy, Medium, Hard) it rolls a play style: Rusher, Turtle, Balanced
+  or Tycoon. It places towers by how much track they cover, saves up for
+  what it wants, answers what you send, and on Hard sizes its pushes to what
+  your defense can absorb.
+- **A live main menu.** The match on the menu is real: two AIs playing the
+  same engine you are about to.
+- **Short matches.** About 5 minutes, or 3 under the Blitz modifier.
+- **Your record** (wins, losses, streaks) and sound setting are kept on the
+  device.
 
-Towers, map, modifier and AI personality are rolled independently, so two
+Towers offered, map, modifier and AI style are rolled independently, so two
 matches rarely play the same way.
 
 ## Install
@@ -56,20 +73,28 @@ key, so a newer APK installs over the old one and keeps it updated in place.
 
 ## How a match plays
 
-Each side starts with 120 gold and 100 lives and earns gold passively.
+Each side starts with 130 gold and 100 lives and earns gold every second.
 
-- **BUILD row.** Tap one of your 3 drafted towers to arm it, then tap your
-  lane (the bottom one) to place it. A lane holds up to 8 towers, and towers
-  cannot overlap.
-- **Tap a placed tower** to see its range and stats, upgrade it (once per
-  tower) or sell it for half of what you spent on it.
-- **SEND row.** Spend gold to send units down the opponent's lane (the top
-  one). Every unit that reaches a base costs that side lives, and every unit
-  you kill pays you a bounty.
-- **PAUSE**, or the system back button, stops the match. Leaving the app
-  pauses it automatically.
-- The first side to reach 0 lives loses. If the clock runs out, the side with
-  more lives wins.
+- **Draft.** Tap 3 of the 5 towers you are offered, then **Battle!**. At
+  least one of the three has to be a real damage dealer.
+- **Build.** Tap one of your towers in the bottom panel, then touch your
+  lane (the lower one). Keep your finger down to see the tower's range and
+  drag it into place; lift to build. Towers cannot stand on the track or on
+  each other, and a lane holds up to 10.
+- **Tap a placed tower** to see its range and stats, upgrade it (twice),
+  change which unit it shoots first, or sell it for 70% of what you spent.
+- **Send.** The two rows of unit buttons send units down the rival's lane
+  (the upper one). A sent unit is as tough as the current round's wave.
+  Every send except the Boss also raises your income for good, so cheap
+  sends early pay for big pushes later.
+- **Survive.** A wave walks both lanes every round. Every unit that reaches
+  a keep costs that side lives, and every unit you pop pays a bounty.
+- **Pause**, or the system back button, stops the match. Leaving the app
+  pauses it automatically. The button on the right of the top bar doubles
+  the speed.
+- The first side to reach 0 lives loses. After round 12 (round 6 under
+  Blitz) it is sudden death: a wave every 10 seconds, each one much tougher
+  and faster than the one before.
 
 ## Building from source
 
@@ -140,21 +165,31 @@ app/src/main/java/com/towerduel/game/
 │   ├── GameData.kt          All game content and balance numbers
 │   └── GameModels.kt        Data classes and enums for that content
 ├── engine/
-│   ├── GameEngine.kt        The simulation: income, targeting, attacks, status effects, win condition
-│   ├── AiController.kt      The opponent's decision making
-│   ├── PathMath.kt          Path geometry helpers
-│   └── RuntimeModels.kt     Live match state (towers, units, battlefields)
+│   ├── GameEngine.kt        The simulation: waves, income, targeting, projectiles, status effects, win condition
+│   ├── AiController.kt      The opponent's decision making (and its draft)
+│   ├── PathMath.kt          The lane track: a smooth curve through a map's control points
+│   └── RuntimeModels.kt     Live match state (towers, units, projectiles, effects, battlefields)
 └── ui/
-    ├── GameViewModel.kt     Runs the game loop and exposes state to the UI
+    ├── GameViewModel.kt     Steps the engine once per display frame, exposes state to the UI
+    ├── DemoMatch.kt         The AI-vs-AI match shown on the main menu
+    ├── Profile.kt           The player's record and settings (SharedPreferences)
     ├── Navigation.kt        Screen routing
+    ├── audio/SoundFx.kt     Synthesizes every sound effect at startup
+    ├── components/          Buttons, panels, outlined text and the icon set
+    ├── render/              Everything drawn on a lane: terrain, sprites, effects
     ├── screens/             MainMenu > Draft > Battle > Results
     └── theme/               Colours, typography, Material theme
 ```
 
 The `engine` package has no Android or Compose dependencies. The view model
-ticks it about 60 times per second and the UI draws whatever state it finds.
-Lanes are simulated in a fixed 100 x 46 virtual coordinate space, so the game
-plays identically on every screen size.
+advances it in fixed 1/60 s steps, driven by the display's frame clock, and
+the UI draws whatever state it finds. Lanes are simulated in a fixed 100 x 62
+virtual coordinate space, so the game plays identically on every screen size.
+
+There are no image or audio files. Sprites are drawn from a handful of
+shapes in `ui/render/Sprites.kt`, the same code for the battlefield and for
+the portraits in the UI. Each map's ground and track are painted once into a
+bitmap and reused every frame.
 
 | Component | Version |
 | --- | --- |
@@ -168,21 +203,40 @@ plays identically on every screen size.
 
 All content lives in
 [`GameData.kt`](app/src/main/java/com/towerduel/game/data/GameData.kt).
-Add an entry to one of these lists and the draft and roll logic picks it up
-with no other changes:
+Add an entry to one of these lists and the draft, roll and AI logic pick it
+up with no other changes:
 
 | List | Adds |
 | --- | --- |
-| `TROOPS` | A tower to the draft pool |
-| `ENEMY_SENDS` | A sendable unit |
-| `MAPS` | A map, defined by its path points in the 100 x 46 lane space |
+| `TROOPS` | A tower to the draft pool, with its upgrade tiers |
+| `ENEMY_SENDS` | A unit, sendable unless marked `sendable = false` |
+| `WAVES` | The units of one round |
+| `MAPS` | A map: a theme and the track's control points in the 100 x 62 lane space |
 | `MODIFIERS` | A match modifier |
 
-Global balance values (starting gold, lives, income, match length, towers per
-lane) are constants at the top of the same file.
+A new tower or unit is drawn as a plain turret or a plain blob in its own
+colour until you give it a branch in
+[`Sprites.kt`](app/src/main/java/com/towerduel/game/ui/render/Sprites.kt).
+
+Global balance values (starting gold, lives, income, round timing, towers
+per lane) are constants at the top of `GameData.kt`.
 
 To add an AI personality, add a value to the `AiPersonality` enum in
-`GameModels.kt` and give it a weighting branch in `AiController.kt`.
+`GameModels.kt` and give it a value in each of the personality tables at the
+top of `AiController.kt`.
+
+## Tests
+
+```bash
+./gradlew :app:testDebugUnitTest
+```
+
+`BalanceSimulationTest` plays about 300 whole matches headless, AI against
+AI, in about a minute. It fails if any match does not end, if a harder AI
+does not beat an easier one most of the time, or if a personality can never
+win. It also prints a table per matchup (wins, match length, how many
+matches ended before sudden death, lives left), which is the tool to use
+when changing numbers in `GameData.kt`.
 
 ## Releases and versioning
 
@@ -311,9 +365,20 @@ app. The official one has to be uninstalled first.
    running.
 3. Keep simulation logic in `engine/` free of Android and Compose imports,
    and keep content and balance numbers in `GameData.kt`.
-4. Run the game on a device or emulator and play at least one full match
+4. Run `./gradlew :app:testDebugUnitTest`. For balance changes, include the
+   simulation table before and after.
+5. Run the game on a device or emulator and play at least one full match
    with your change.
-5. Open a pull request that describes what changed and why. For balance
-   changes, say how you tested them.
+6. Open a pull request that describes what changed and why.
 
 Bug reports and ideas are welcome in the issue tracker.
+
+## Credits
+
+The game bundles two fonts, each under its own open licence. The licence
+texts ship inside the APK, in `app/src/main/assets/licenses/`.
+
+| Font | Used for | Licence |
+| --- | --- | --- |
+| [Luckiest Guy](https://fonts.google.com/specimen/Luckiest+Guy) by Astigmatic | Titles, buttons, numbers | Apache License 2.0 |
+| [Fredoka](https://fonts.google.com/specimen/Fredoka) by the Fredoka Project Authors | Body text | SIL Open Font License 1.1 |

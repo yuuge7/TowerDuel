@@ -4,23 +4,47 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Shield outline -->
-    <path
-        android:fillColor="#3DDC97"
-        android:pathData="M54,20 L78,30 L78,58 C78,76 66,86 54,92 C42,86 30,76 30,58 L30,30 Z" />
+    <!-- The game's Sentry tower, seen from above like it is on the battlefield. -->
 
-    <!-- Shield inner -->
+    <!-- Platform: ink outline, gold ring, darker gold floor -->
     <path
-        android:fillColor="#1B2430"
-        android:pathData="M54,28 L71,35 L71,58 C71,71 63,79 54,84 C45,79 37,71 37,58 L37,35 Z" />
+        android:fillColor="#1B1430"
+        android:pathData="M28,54a26,26 0 1,0 52,0a26,26 0 1,0 -52,0" />
+    <path
+        android:fillColor="#FFC93C"
+        android:pathData="M31,54a23,23 0 1,0 46,0a23,23 0 1,0 -46,0" />
+    <path
+        android:fillColor="#D9A21F"
+        android:pathData="M36,54a18,18 0 1,0 36,0a18,18 0 1,0 -36,0" />
 
-    <!-- Tower body -->
-    <path
-        android:fillColor="#F2C744"
-        android:pathData="M46,72 L46,50 L50,50 L50,45 L58,45 L58,50 L62,50 L62,72 Z" />
+    <!-- Barrel, aimed up and to the right -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="-40">
+        <path
+            android:fillColor="#1B1430"
+            android:pathData="M56,45.5 h30 a2.5,2.5 0 0 1 2.5,2.5 v12 a2.5,2.5 0 0 1 -2.5,2.5 h-30 z" />
+        <path
+            android:fillColor="#55607A"
+            android:pathData="M56,48.5 h29.5 v11 h-29.5 z" />
+        <path
+            android:fillColor="#3A4257"
+            android:pathData="M79,48.5 h6.5 v11 h-6.5 z" />
+    </group>
 
-    <!-- Tower crenellations -->
+    <!-- Dome -->
     <path
-        android:fillColor="#F2C744"
-        android:pathData="M44,50 L44,44 L48,44 L48,50 M52,44 L56,44 L56,50 L52,50 Z M60,44 L64,44 L64,50 L60,50 Z" />
+        android:fillColor="#1B1430"
+        android:pathData="M37.5,54a16.5,16.5 0 1,0 33,0a16.5,16.5 0 1,0 -33,0" />
+    <path
+        android:fillColor="#3FA7F5"
+        android:pathData="M40.5,54a13.5,13.5 0 1,0 27,0a13.5,13.5 0 1,0 -27,0" />
+    <path
+        android:fillColor="#2C78B4"
+        android:pathData="M48.3,54a5.7,5.7 0 1,0 11.4,0a5.7,5.7 0 1,0 -11.4,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.45"
+        android:pathData="M44.3,48.3a4,4 0 1,0 8,0a4,4 0 1,0 -8,0" />
 </vector>

@@ -1,6 +1,8 @@
 <resources>
+    <!-- Android 12+ shows its own launch screen; give it the game's night sky instead of black. -->
     <style name="Theme.TowerDuel" parent="android:Theme.Material.NoActionBar">
         <item name="android:statusBarColor">#150F2E</item>
         <item name="android:windowBackground">#150F2E</item>
+        <item name="android:windowSplashScreenBackground">#231A4C</item>
     </style>
 </resources>
