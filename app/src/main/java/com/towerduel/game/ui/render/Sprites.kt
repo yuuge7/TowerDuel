@@ -409,6 +409,77 @@ fun DrawScope.drawTowerBody(
             drawCircle(Color(0xFFFFD75A), (0.3f + 0.25f * spark) * u, Offset(cx + 0.9f * u, cy - 1.1f * u))
             drawCircle(Color.White, 0.15f * u, Offset(cx + 0.9f * u, cy - 1.1f * u))
         }
+        "railgun" -> {
+            rotate(aimDeg, Offset(cx, cy)) {
+                // Two long rails with the charge glowing between them
+                val left = cx - 0.6f * u - kick
+                for (side in -1..1 step 2) {
+                    slab(Steel, left, cy + side * 0.75f * u - 0.28f * u, 4.6f * u, 0.56f * u, 0.2f * u, ow)
+                }
+                val charge = (sinceFiredMs / 1400f).coerceIn(0f, 1f)
+                drawRoundRect(
+                    color.copy(alpha = 0.35f + 0.6f * charge), Offset(left + 0.6f * u, cy - 0.3f * u),
+                    Size(3.6f * u * charge, 0.6f * u), CornerRadius(0.3f * u)
+                )
+            }
+            blob(Gunmetal, cx, cy, 1.75f * u, ow)
+            drawCircle(color, 0.8f * u, Offset(cx, cy))
+            drawCircle(Color.White.copy(alpha = 0.8f), 0.3f * u, Offset(cx - 0.25f * u, cy - 0.25f * u))
+        }
+        "icebreaker" -> {
+            turret(cx, cy, u, aimDeg, kick, color, 1.9f, barrels = 1, spread = 0f, length = 2.7f, width = 0.8f)
+            // An ice pick for a badge
+            shape(Color.White, ow * 0.6f, cx, cy - 1.05f * u, cx + 0.55f * u, cy, cx, cy + 1.05f * u, cx - 0.55f * u, cy)
+            shape(Frost, 0f, cx, cy - 0.7f * u, cx + 0.3f * u, cy, cx, cy + 0.2f * u, cx - 0.3f * u, cy)
+        }
+        "slayer" -> {
+            blob(Gunmetal, cx, cy, 1.6f * u, ow)
+            rotate(aimDeg, Offset(cx, cy)) {
+                // A great spear, hauled back and let go
+                val pull = kick * 1.4f
+                slab(Color(0xFF8A5A2B), cx - 2.1f * u - pull, cy - 0.3f * u, 4.6f * u, 0.6f * u, 0.25f * u, ow)
+                shape(
+                    color, ow, cx + 2.3f * u - pull, cy - 0.95f * u, cx + 4.3f * u - pull, cy,
+                    cx + 2.3f * u - pull, cy + 0.95f * u, cx + 2.8f * u - pull, cy
+                )
+            }
+            blob(color.darken(0.3f), cx, cy, 0.85f * u, ow * 0.8f)
+        }
+        "bolas" -> {
+            blob(color.darken(0.25f), cx, cy, 2f * u, ow)
+            // Two weights whirling on a cord, slower while a throw is still out
+            val spin = timeMs * (if (sinceFiredMs < 700f) 0.15f else 0.6f)
+            rotate(spin, Offset(cx, cy)) {
+                drawLine(Ink, Offset(cx - 1.5f * u, cy), Offset(cx + 1.5f * u, cy), 0.45f * u)
+                drawLine(Color(0xFFE9DFC6), Offset(cx - 1.5f * u, cy), Offset(cx + 1.5f * u, cy), 0.2f * u)
+                blob(color, cx - 1.5f * u, cy, 0.62f * u, ow * 0.8f)
+                blob(color, cx + 1.5f * u, cy, 0.62f * u, ow * 0.8f)
+            }
+            blob(Stone, cx, cy, 0.45f * u, ow * 0.7f)
+        }
+        "scatter" -> {
+            rotate(aimDeg, Offset(cx, cy)) {
+                // A short barrel that flares into a wide mouth
+                val left = cx + 0.4f * u - kick
+                shape(
+                    Gunmetal, ow, left, cy - 0.7f * u, left + 2.3f * u, cy - 1.5f * u,
+                    left + 2.3f * u, cy + 1.5f * u, left, cy + 0.7f * u
+                )
+                for (k in -1..1) drawCircle(Ink, 0.26f * u, Offset(left + 2.15f * u, cy + k * 0.85f * u))
+            }
+            blob(color, cx, cy, 1.9f * u, ow)
+            drawCircle(color.darken(0.3f), 0.8f * u, Offset(cx, cy))
+            drawCircle(Color.White.copy(alpha = 0.4f), 0.55f * u, Offset(cx - 0.8f * u, cy - 0.8f * u))
+        }
+        "blight" -> {
+            turret(cx, cy, u, aimDeg, kick, Gunmetal, 1.9f, barrels = 1, spread = 0f, length = 2.4f, width = 1f, muzzle = 1.4f)
+            // A sac of rot, swelling and sinking
+            val swell = 0.5f + 0.5f * sin(timeMs * 0.005f + cx)
+            blob(color, cx, cy, (1.15f + 0.15f * swell) * u, ow * 0.8f)
+            drawCircle(color.lighten(0.45f), 0.3f * u, Offset(cx - 0.35f * u, cy - 0.3f * u))
+            drawCircle(color.darken(0.35f), 0.22f * u, Offset(cx + 0.4f * u, cy + 0.25f * u))
+            drawCircle(color.darken(0.35f), 0.16f * u, Offset(cx - 0.1f * u, cy + 0.5f * u))
+        }
         else -> {
             // A tower with no art of its own: a plain turret in its colour.
             val kind = type.shot
@@ -475,7 +546,12 @@ fun DrawScope.drawUnit(
     val body = type.color
     val shade = body.darken(0.22f)
 
-    if (type.flying) {
+    if (type.id == "airship") {
+        // No wings: a gondola slung underneath, and a propeller turning behind
+        slab(Color(0xFF8A5A2B), cx - rx * 0.45f, cy + ry * 0.75f, rx * 0.9f, ry * 0.42f, ry * 0.12f, ow * 0.8f)
+        val turn = sin(timeMs * 0.04f + seed)
+        drawLine(Ink, Offset(cx - dirX * rx * 1.25f, cy - ry * 0.45f * turn), Offset(cx - dirX * rx * 1.25f, cy + ry * 0.45f * turn), ow * 1.6f, StrokeCap.Round)
+    } else if (type.flying) {
         val wing = if (type.id == "bats") body.darken(0.35f) else Color.White
         val flap = sin(timeMs * 0.03f + seed)
         for (side in -1..1 step 2) {
@@ -676,6 +752,71 @@ fun DrawScope.drawUnit(
                 drawCircle(Ink, r * 0.09f, Offset(hx + dirX * r * 0.1f, hy - r * 0.04f))
             }
         }
+        "lich" -> {
+            // A hood, and a crown of bone
+            drawArc(Ink, 180f, 180f, true, Offset(cx - rx - ow, cy - ry - ow), Size(2f * (rx + ow), 2f * (ry + ow) * 0.95f))
+            drawArc(Color(0xFF3D4A45), 180f, 180f, true, Offset(cx - rx, cy - ry), Size(2f * rx, 2f * ry * 0.92f))
+            val top = cy - ry
+            for (side in -1..1) {
+                val sx = cx + side * rx * 0.36f
+                shape(Color(0xFFF1EBDD), ow * 0.7f, sx - rx * 0.13f, top + ry * 0.12f, sx, top - ry * (0.42f - 0.12f * side * side), sx + rx * 0.13f, top + ry * 0.12f)
+            }
+            drawCircle(Color(0xFF7FF2C0).copy(alpha = 0.3f), r * 1.25f, Offset(cx, cy), style = Stroke(ow * 0.8f))
+        }
+        "imp" -> {
+            // Little horns and a pointed tail
+            for (side in -1..1 step 2) {
+                shape(
+                    Ink, 0f,
+                    cx + side * rx * 0.3f, cy - ry * 0.85f, cx + side * rx * 0.72f, cy - ry * 1.4f, cx + side * rx * 0.7f, cy - ry * 0.6f
+                )
+            }
+            shape(
+                body.darken(0.3f), ow * 0.6f,
+                cx - dirX * rx * 0.9f, cy + ry * 0.3f, cx - dirX * rx * 1.7f, cy - ry * 0.1f, cx - dirX * rx * 1.25f, cy + ry * 0.6f
+            )
+        }
+        "lancer" -> {
+            // A plumed helm, and the lance levelled ahead
+            drawArc(Ink, 180f, 180f, true, Offset(cx - rx - ow, cy - ry - ow), Size(2f * (rx + ow), 2f * (ry + ow) * 0.95f))
+            drawArc(Color(0xFFC3CCD9), 180f, 180f, true, Offset(cx - rx, cy - ry), Size(2f * rx, 2f * ry * 0.92f))
+            shape(Tomato, ow * 0.7f, cx - rx * 0.15f, cy - ry * 0.95f, cx - rx * 0.6f, cy - ry * 1.55f, cx + rx * 0.25f, cy - ry * 1.05f)
+            val lx = if (dirX >= 0f) 1f else -1f
+            drawLine(Ink, Offset(cx + lx * rx * 0.3f, cy + ry * 0.55f), Offset(cx + lx * rx * 2.1f, cy + ry * 0.35f), ow * 2.6f, StrokeCap.Round)
+            drawLine(Color.White, Offset(cx + lx * rx * 0.3f, cy + ry * 0.55f), Offset(cx + lx * rx * 2.1f, cy + ry * 0.35f), ow * 1.2f, StrokeCap.Round)
+        }
+        "tortoise" -> {
+            // A plated shell over its back
+            drawArc(Ink, 180f, 180f, true, Offset(cx - rx - ow, cy - ry - ow), Size(2f * (rx + ow), 2f * (ry + ow) * 0.95f))
+            drawArc(body.darken(0.35f), 180f, 180f, true, Offset(cx - rx, cy - ry), Size(2f * rx, 2f * ry * 0.92f))
+            val plate = Stroke(ow * 0.8f, cap = StrokeCap.Round)
+            scratchPath.rewind()
+            scratchPath.moveTo(cx, cy - ry)
+            scratchPath.lineTo(cx, cy - ry * 0.12f)
+            scratchPath.moveTo(cx - rx * 0.55f, cy - ry * 0.82f)
+            scratchPath.lineTo(cx - rx * 0.45f, cy - ry * 0.12f)
+            scratchPath.moveTo(cx + rx * 0.55f, cy - ry * 0.82f)
+            scratchPath.lineTo(cx + rx * 0.45f, cy - ry * 0.12f)
+            drawPath(scratchPath, Ink.copy(alpha = 0.6f), style = plate)
+            drawRoundRect(Ink, Offset(cx - rx - ow, cy - ry * 0.16f), Size(2f * (rx + ow), ry * 0.24f), CornerRadius(ry * 0.1f))
+        }
+        "decoy" -> {
+            // A straw hat, and a target painted on its belly
+            shape(
+                Color(0xFFE8C766), ow * 0.8f,
+                cx - rx * 1.15f, cy - ry * 0.55f, cx - rx * 0.4f, cy - ry * 0.75f, cx, cy - ry * 1.5f,
+                cx + rx * 0.4f, cy - ry * 0.75f, cx + rx * 1.15f, cy - ry * 0.55f
+            )
+            drawCircle(Color.White, r * 0.3f, Offset(cx, cy + ry * 0.55f))
+            drawCircle(Tomato, r * 0.3f, Offset(cx, cy + ry * 0.55f), style = Stroke(ow * 0.7f))
+            drawCircle(Tomato, r * 0.1f, Offset(cx, cy + ry * 0.55f))
+        }
+        "airship" -> {
+            // Seams along the envelope
+            val seam = Stroke(ow * 0.7f, cap = StrokeCap.Round)
+            drawArc(Ink.copy(alpha = 0.45f), 200f, 140f, false, Offset(cx - rx * 0.55f, cy - ry), Size(rx * 1.1f, ry * 2f), style = seam)
+            drawArc(Ink.copy(alpha = 0.45f), 215f, 110f, false, Offset(cx - rx * 0.95f, cy - ry * 0.85f), Size(rx * 1.9f, ry * 1.9f), style = seam)
+        }
         "queen" -> {
             // Stripes, and a small crown
             val stripe = Stroke(ow * 1.6f, cap = StrokeCap.Round)
@@ -703,7 +844,7 @@ fun DrawScope.drawUnit(
     }
     if (type.id == "boss" || type.id == "tank" || type.id == "juggernaut" || type.id == "troll" ||
         type.id == "berserker" || type.id == "colossus" || type.id == "wyvern" || type.id == "warlord" ||
-        type.id == "sapper" || type.id == "hydra"
+        type.id == "sapper" || type.id == "hydra" || type.id == "lich" || type.id == "imp" || type.id == "lancer"
     ) {
         // Angry brows
         val brow = Stroke(ow * 1.3f, cap = StrokeCap.Round)

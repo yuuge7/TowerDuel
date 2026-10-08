@@ -39,8 +39,11 @@ import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.towerduel.game.data.GameMode
+import com.towerduel.game.engine.Battlefield
 import com.towerduel.game.engine.GameEngine
 import com.towerduel.game.engine.MatchOutcome
+import com.towerduel.game.ui.Cup
 import com.towerduel.game.ui.GameViewModel
 import com.towerduel.game.ui.components.ChunkyTextButton
 import com.towerduel.game.ui.components.GamePanel
@@ -104,23 +107,30 @@ fun ResultsScreen(
             Spacer(Modifier.height(18.dp))
             GamePanel(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    // In a 2 v 2 the numbers are each team's, both seats added up.
+                    val team = eng.isTeamMatch
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedText("YOU", fontSize = 18.sp, color = PlayerColor, modifier = Modifier.width(74.dp))
+                        OutlinedText(if (team) "TEAM" else "YOU", fontSize = 18.sp, color = PlayerColor, modifier = Modifier.width(84.dp))
                         Spacer(Modifier.weight(1f))
-                        OutlinedText("RIVAL", fontSize = 18.sp, color = AiColor, textAlign = TextAlign.End, modifier = Modifier.width(74.dp))
+                        OutlinedText(if (team) "RIVALS" else "RIVAL", fontSize = 18.sp, color = AiColor, textAlign = TextAlign.End, modifier = Modifier.width(84.dp))
                     }
                     StatRow("Lives left", you.lives, rival.lives)
-                    StatRow("Units popped", you.stats.kills, rival.stats.kills)
-                    StatRow("Units sent", you.stats.unitsSent, rival.stats.unitsSent)
-                    StatRow("Gold earned", you.stats.goldEarned.toInt(), rival.stats.goldEarned.toInt())
-                    StatRow("Towers built", you.stats.towersBuilt, rival.stats.towersBuilt)
+                    StatRow("Units popped", teamTotal(you) { it.stats.kills }, teamTotal(rival) { it.stats.kills })
+                    StatRow("Units sent", teamTotal(you) { it.stats.unitsSent }, teamTotal(rival) { it.stats.unitsSent })
+                    StatRow("Gold earned", teamTotal(you) { it.stats.goldEarned.toInt() }, teamTotal(rival) { it.stats.goldEarned.toInt() })
+                    StatRow("Towers built", teamTotal(you) { it.stats.towersBuilt }, teamTotal(rival) { it.stats.towersBuilt })
                     StatRow("Leaks", you.stats.leaks, rival.stats.leaks, lowerIsBetter = true)
                 }
             }
 
             Spacer(Modifier.height(12.dp))
+            val cup = viewModel.profile.cup.takeIf { viewModel.matchMode == GameMode.CUP }
             Text(
                 when {
+                    cup != null && cup.playerWon -> "The cup is yours!"
+                    cup != null && cup.isOver -> "Out of the cup in the ${Cup.roundName(cup.knockedOutIn ?: 0).lowercase()}."
+                    cup != null && outcome == MatchOutcome.DRAW -> "A draw settles nothing: the ${Cup.roundName(cup.round).lowercase()} is played again."
+                    cup != null -> "Through to the ${Cup.roundName(cup.round).lowercase()}!"
                     outcome == MatchOutcome.PLAYER_WIN && record.streak > 1 -> "${record.streak} wins in a row! Best streak: ${record.bestStreak}"
                     else -> "Record: ${record.wins} won, ${record.losses} lost"
                 },
@@ -129,7 +139,10 @@ fun ResultsScreen(
             )
 
             Spacer(Modifier.weight(1f))
-            ChunkyTextButton("PLAY AGAIN", onPlayAgain, Modifier.fillMaxWidth().height(68.dp), color = Leaf, fontSize = 28.sp)
+            ChunkyTextButton(
+                if (viewModel.matchMode == GameMode.CUP) "BACK TO THE CUP" else "PLAY AGAIN", onPlayAgain,
+                Modifier.fillMaxWidth().height(68.dp), color = Leaf, fontSize = if (viewModel.matchMode == GameMode.CUP) 24.sp else 28.sp
+            )
             Spacer(Modifier.height(10.dp))
             ChunkyTextButton("MAIN MENU", onMainMenu, Modifier.fillMaxWidth().height(52.dp), color = PanelLight, fontSize = 18.sp)
             Spacer(Modifier.height(14.dp))
@@ -137,18 +150,21 @@ fun ResultsScreen(
     }
 }
 
+/** [pick] for a seat and, in a 2 v 2, for the seat beside it. */
+private fun teamTotal(seat: Battlefield, pick: (Battlefield) -> Int): Int = pick(seat) + (seat.partner?.let(pick) ?: 0)
+
 /** One stat, both sides. The better number is lit; a tie lights neither. */
 @Composable
 private fun StatRow(label: String, you: Int, rival: Int, lowerIsBetter: Boolean = false) {
     val youBetter = if (lowerIsBetter) you < rival else you > rival
     val rivalBetter = if (lowerIsBetter) rival < you else rival > you
     Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedText("$you", fontSize = 20.sp, color = if (youBetter) Sun else Cream, modifier = Modifier.width(74.dp))
+        OutlinedText("$you", fontSize = 20.sp, color = if (youBetter) Sun else Cream, modifier = Modifier.width(84.dp))
         Text(
             label, color = Lilac, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f)
         )
-        OutlinedText("$rival", fontSize = 20.sp, color = if (rivalBetter) Sun else Cream, textAlign = TextAlign.End, modifier = Modifier.width(74.dp))
+        OutlinedText("$rival", fontSize = 20.sp, color = if (rivalBetter) Sun else Cream, textAlign = TextAlign.End, modifier = Modifier.width(84.dp))
     }
 }
 

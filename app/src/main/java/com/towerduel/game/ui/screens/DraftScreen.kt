@@ -38,12 +38,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.towerduel.game.data.GameData
+import com.towerduel.game.data.GameMode
 import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.EnemySendType
 import com.towerduel.game.data.ShotKind
 import com.towerduel.game.data.TroopType
+import com.towerduel.game.data.Rival
 import com.towerduel.game.engine.LanePath
+import com.towerduel.game.ui.Cup
 import com.towerduel.game.ui.GameViewModel
 import com.towerduel.game.ui.components.ChunkyTextButton
 import com.towerduel.game.ui.components.GameIcon
@@ -89,6 +92,8 @@ fun DraftScreen(viewModel: GameViewModel, onDeploy: () -> Unit) {
         // One scrolling list for everything above the button, so short screens can still reach every tower.
         LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item { MatchCard(viewModel) }
+            val ally = viewModel.ally
+            if (ally != null) item { AllyCard(ally, viewModel.allyDraft) }
             item { RosterCard(viewModel.roster) }
             items(viewModel.offeredTroops, key = { it.id }) { troop ->
                 val isPicked = troop in picked
@@ -122,13 +127,24 @@ private fun MatchCard(viewModel: GameViewModel) {
             MapPreview(viewModel.map, Modifier.width(132.dp))
             Spacer(Modifier.width(12.dp))
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                val cup = viewModel.profile.cup
+                if (viewModel.matchMode == GameMode.CUP && cup != null) InfoLine("CUP", Cup.roundName(cup.round), null, Sun)
                 InfoLine("MAP", viewModel.map.name, null)
                 for (rule in viewModel.rules) InfoLine("RULE", rule.name, rule.description)
-                InfoLine(
-                    "RIVAL", viewModel.rival.name,
-                    "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}. ${viewModel.aiPersonality.blurb}",
-                    AiColor
-                )
+                val second = viewModel.rival2
+                if (second == null) {
+                    InfoLine(
+                        "RIVAL", viewModel.rival.name,
+                        "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}. ${viewModel.aiPersonality.blurb}",
+                        AiColor
+                    )
+                } else {
+                    InfoLine(
+                        "RIVALS", "${viewModel.rival.name} & ${second.name}",
+                        "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label} and ${second.personality.label}, two purses behind one lane.",
+                        AiColor
+                    )
+                }
             }
         }
     }
@@ -236,6 +252,38 @@ private fun PickMark(picked: Boolean) {
     }
 }
 
+/** Who shares the player's lane in a 2 v 2, and the towers they bring: what is worth picking beside them. */
+@Composable
+private fun AllyCard(ally: Rival, towers: List<TroopType>) {
+    GamePanel(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("YOUR ALLY", color = Sun, style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.width(6.dp))
+                Text(ally.name, color = PlayerColor, style = MaterialTheme.typography.titleMedium, fontSize = 15.sp, maxLines = 1)
+                Spacer(Modifier.width(6.dp))
+                Text(ally.personality.label, color = Lilac, style = MaterialTheme.typography.bodyMedium, fontSize = 12.sp, maxLines = 1)
+            }
+            Text(
+                "Builds on your lane with its own gold, and brings:",
+                color = Lilac, style = MaterialTheme.typography.bodyMedium, fontSize = 12.sp, lineHeight = 15.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                for (tower in towers) {
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        TowerPortrait(tower, Modifier.size(40.dp))
+                        Text(
+                            tower.name, color = Cream, style = MaterialTheme.typography.labelSmall, fontSize = 9.5.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** The units both sides can send this match, and that its waves are made of. */
 @Composable
 private fun RosterCard(roster: List<EnemySendType>) {
@@ -280,6 +328,7 @@ private fun StatBars(troop: TroopType) {
     if (troop.pierce > 0) power *= 1f + 0.35f * troop.pierce
     power += troop.dotDamagePerSecond * (if (troop.shot.isPulse) 2.5f else 1.5f)
     power += troop.slowFactor * 40f + troop.knockback * 4f + troop.vulnerabilityPct * 0.6f
+    power += troop.stunChance * troop.stunDurationMs / 120f
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatBar("PWR", (power / 55f).coerceIn(0.06f, 1f), Modifier.weight(1f))
         StatBar("RNG", (troop.range / 44f).coerceIn(0.06f, 1f), Modifier.weight(1f))

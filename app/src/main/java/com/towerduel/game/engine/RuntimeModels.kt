@@ -28,6 +28,9 @@ class TowerInstance(
         private set
     var kills = 0
 
+    /** The seat that built it: who may upgrade or sell it, and whose purse its income goes to. */
+    var owner: Battlefield? = null
+
     /** Fraction of extra damage from Beacons in range; the engine refreshes it when towers change. */
     var auraBonus = 0f
 
@@ -78,6 +81,9 @@ class TowerInstance(
     var killGrowthMax = type.killGrowthMaxPct / 100f; private set
     var deathBlast = type.deathBlastPct / 100f; private set
     var blastRadius = type.deathBlastRadius; private set
+    var controlBonus = type.bonusVsControlledPct / 100f; private set
+    var bigBonus = type.bonusVsBigPct / 100f; private set
+    var dotSpread = type.dotSpreadRadius; private set
 
     /** Fraction of extra damage a Veteran has earned from its kills so far. */
     val killBonus: Float get() = minOf(kills * killGrowth, killGrowthMax)
@@ -88,10 +94,11 @@ class TowerInstance(
 
     val nextUpgrade: UpgradeTier? get() = type.upgrades.getOrNull(level)
 
-    fun applyNextUpgrade(nowMs: Float): Boolean {
+    /** [free] is a tier nobody paid for (a rule, an event): it adds nothing to what selling gives back. */
+    fun applyNextUpgrade(nowMs: Float, free: Boolean = false): Boolean {
         val tier = nextUpgrade ?: return false
         level++
-        invested += tier.cost
+        if (!free) invested += tier.cost
         upgradedAtMs = nowMs
         damage *= tier.damageMult
         reloadMs *= tier.reloadMult
@@ -108,6 +115,9 @@ class TowerInstance(
         killGrowthMax *= tier.effectMult
         deathBlast = (deathBlast * tier.effectMult).coerceAtMost(MAX_DEATH_BLAST)
         blastRadius *= tier.splashMult
+        controlBonus *= tier.effectMult
+        bigBonus *= tier.effectMult
+        dotSpread *= tier.splashMult
         slow = (slow * tier.effectMult).coerceAtMost(MAX_SLOW)
         stunChance = (stunChance * tier.effectMult).coerceAtMost(MAX_STUN_CHANCE)
         dotDps *= tier.effectMult
@@ -176,6 +186,9 @@ class EnemyUnit(
 
     /** When a Queen lays her next unit. */
     var nextSpawnAtMs = bornAtMs + type.spawnEveryMs
+
+    /** When an Imp blinks next. Spread out by id, so a pack does not jump as one. */
+    var nextBlinkAtMs = bornAtMs + type.blinkEveryMs * (0.4f + (instanceId % 5L) * 0.15f)
 }
 
 /** A wave or send unit waiting for its turn to step onto the lane. */
@@ -258,32 +271,63 @@ class LaneWarning(val unit: EnemySendType, val atMs: Float)
 /** A random event: when it struck, and when its effect wears off (the same moment for a one-off). */
 class ActiveEvent(val type: MatchEventType, val startedAtMs: Float, val endsAtMs: Float)
 
-/**
- * One side's battlefield: the towers defending it, and the enemies currently
- * marching down its path toward its base.
- */
-class Battlefield(
-    val ownerLabel: String,
-    val draftedTroops: List<TroopType>,
-    var gold: Float,
-    var lives: Int
-) {
+/** Everything that stands on or walks one lane, and the keep at the end of it. */
+class Lane(var lives: Int) {
     val towers = ArrayList<TowerInstance>()
     val incomingEnemies = ArrayList<EnemyUnit>()
     val pendingSpawns = ArrayList<PendingSpawn>()
     val projectiles = ArrayList<Projectile>()
     val fx = ArrayList<FxEvent>()
-    val stats = MatchStats()
     var nextInstanceId = 0L
+    var lastLeakAtMs = -100_000f
+    var warning: LaneWarning? = null
+
+    /** Times this keep can still stand back up after falling (the Second Chance rule). */
+    var revivesLeft = 0
+}
+
+/**
+ * One seat at the match: a purse, a hand of towers, and the lane it defends. In a duel every seat
+ * has a lane to itself. In a 2 v 2 the two seats of a team share one [lane]: its towers, its lives
+ * and the units walking it are the same objects for both, while gold, income and stats stay apart.
+ */
+class Battlefield(
+    val ownerLabel: String,
+    val draftedTroops: List<TroopType>,
+    var gold: Float,
+    val lane: Lane
+) {
+    constructor(ownerLabel: String, draftedTroops: List<TroopType>, gold: Float, lives: Int) :
+        this(ownerLabel, draftedTroops, gold, Lane(lives))
+
+    val towers: ArrayList<TowerInstance> get() = lane.towers
+    val incomingEnemies: ArrayList<EnemyUnit> get() = lane.incomingEnemies
+    val pendingSpawns: ArrayList<PendingSpawn> get() = lane.pendingSpawns
+    val projectiles: ArrayList<Projectile> get() = lane.projectiles
+    val fx: ArrayList<FxEvent> get() = lane.fx
+    var lives: Int
+        get() = lane.lives
+        set(value) { lane.lives = value }
+    var nextInstanceId: Long
+        get() = lane.nextInstanceId
+        set(value) { lane.nextInstanceId = value }
+    var lastLeakAtMs: Float
+        get() = lane.lastLeakAtMs
+        set(value) { lane.lastLeakAtMs = value }
+    var warning: LaneWarning?
+        get() = lane.warning
+        set(value) { lane.warning = value }
+
+    val stats = MatchStats()
+
+    /** The other seat on this lane in a 2 v 2; null in a duel. */
+    var partner: Battlefield? = null
 
     /** Extra gold per second bought by sending units. */
     var ecoIncome = 0f
 
     /** Per unit id: when this side may send that unit again. */
     val sendReadyAtMs = HashMap<String, Float>()
-
-    var lastLeakAtMs = -100_000f
-    var warning: LaneWarning? = null
 }
 
 enum class MatchOutcome { PLAYER_WIN, AI_WIN, DRAW, ONGOING }

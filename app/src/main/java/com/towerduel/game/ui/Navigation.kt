@@ -7,7 +7,9 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.towerduel.game.data.GameMode
 import com.towerduel.game.ui.screens.BattleScreen
+import com.towerduel.game.ui.screens.CupScreen
 import com.towerduel.game.ui.screens.DraftScreen
 import com.towerduel.game.ui.screens.MainMenuScreen
 import com.towerduel.game.ui.screens.ResultsScreen
@@ -19,6 +21,13 @@ private fun NavBackStackEntry.isResumed(): Boolean = lifecycle.currentState == L
 fun AppNavHost(viewModel: GameViewModel) {
     val navController = rememberNavController()
     val backToMenu: () -> Unit = { navController.popBackStack("menu", inclusive = false) }
+    // A cup match starts from the bracket and goes back to it, whatever happened in between.
+    val toCup: () -> Unit = {
+        navController.navigate("cup") {
+            popUpTo("menu")
+            launchSingleTop = true
+        }
+    }
 
     NavHost(navController = navController, startDestination = "menu") {
         composable("menu") { entry ->
@@ -26,10 +35,30 @@ fun AppNavHost(viewModel: GameViewModel) {
                 viewModel = viewModel,
                 onStart = { difficulty ->
                     if (entry.isResumed()) {
-                        viewModel.rollNewMatchSetup(difficulty)
-                        navController.navigate("draft") { launchSingleTop = true }
+                        if (viewModel.selectedMode == GameMode.CUP) {
+                            viewModel.enterCup(difficulty)
+                            toCup()
+                        } else {
+                            viewModel.rollNewMatchSetup(difficulty)
+                            navController.navigate("draft") { launchSingleTop = true }
+                        }
                     }
                 }
+            )
+        }
+        composable("cup") { entry ->
+            if (viewModel.profile.cup == null) {
+                LaunchedEffect(Unit) { backToMenu() }
+                return@composable
+            }
+            CupScreen(
+                viewModel = viewModel,
+                onPlay = {
+                    if (entry.isResumed() && viewModel.rollCupMatch()) {
+                        navController.navigate("draft") { launchSingleTop = true }
+                    }
+                },
+                onMenu = { if (entry.isResumed()) backToMenu() }
             )
         }
         composable("draft") { entry ->
@@ -69,7 +98,7 @@ fun AppNavHost(viewModel: GameViewModel) {
                 onQuit = {
                     if (entry.isResumed()) {
                         viewModel.quitMatch()
-                        backToMenu()
+                        if (viewModel.matchMode == GameMode.CUP) toCup() else backToMenu()
                     }
                 }
             )
@@ -85,10 +114,14 @@ fun AppNavHost(viewModel: GameViewModel) {
                 eng = eng,
                 onPlayAgain = {
                     if (entry.isResumed()) {
-                        viewModel.rollNewMatchSetup(viewModel.selectedDifficulty)
-                        navController.navigate("draft") {
-                            popUpTo("menu")
-                            launchSingleTop = true
+                        if (viewModel.matchMode == GameMode.CUP) {
+                            toCup()
+                        } else {
+                            viewModel.rollNewMatchSetup(viewModel.selectedDifficulty, viewModel.matchMode)
+                            navController.navigate("draft") {
+                                popUpTo("menu")
+                                launchSingleTop = true
+                            }
                         }
                     }
                 },

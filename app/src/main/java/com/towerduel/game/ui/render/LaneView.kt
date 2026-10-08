@@ -197,6 +197,13 @@ class LanePainter(typeface: Typeface) {
             val t = field.towers[i]
             drawTowerPips(t.level, t.x * u, t.y * u, u * towerPop(t, now))
             if (t.auraBonus > 0f) drawStar(Sun, (t.x + 2.4f) * u, (t.y - 2.4f) * u, 0.9f * u, OUTLINE * 0.6f * u)
+            // In a 2 v 2 the second seat's towers carry a pennant, so it shows who built what.
+            if (t.owner != null && t.owner !== field) {
+                val px = (t.x - 2.5f) * u
+                val py = (t.y - 2.1f) * u
+                drawLine(Ink, Offset(px, py + 1.3f * u), Offset(px, py - 1.2f * u), 0.4f * u, StrokeCap.Round)
+                shape(team.lighten(0.6f), OUTLINE * 0.6f * u, px, py - 1.2f * u, px + 1.5f * u, py - 0.6f * u, px, py)
+            }
             if (t.type.isAttacker && (blackout || now < t.jammedUntilMs)) {
                 // Out of action: dimmed, with a spark jumping across it
                 val c = Offset(t.x * u, t.y * u)

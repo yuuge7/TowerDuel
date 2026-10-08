@@ -21,6 +21,10 @@ class StatsFileTest {
         stats += MatchRecord(MatchOutcome.PLAYER_WIN, Difficulty.HARD, listOf("sentry", "sniper", "mortar"), 305, 17, 260, 55, 8100, 10, 40)
         stats += MatchRecord(MatchOutcome.AI_WIN, Difficulty.HARD, listOf("gatling", "sniper", "beacon"), 150, 8, 60, 12, 2500, 5, 100)
         stats += MatchRecord(MatchOutcome.DRAW, Difficulty.MEDIUM, listOf("sentry", "bomb", "chain"), 330, 20, 300, 80, 9900, 10, 100)
+        stats += MatchRecord(
+            MatchOutcome.PLAYER_WIN, Difficulty.MEDIUM, listOf("sentry", "bomb"), 280, 15, 200, 40, 6000, 8, 30,
+            teamMatch = true, cupEntered = true, cupWon = true
+        )
         return stats
     }
 
@@ -32,6 +36,9 @@ class StatsFileTest {
         assertEquals(stats.copy(byDifficulty = stats.byDifficulty.filterValues { it.matches > 0 }), read.stats)
         assertEquals("2026-10-04T09:30:00Z", read.exportedAt)
         assertEquals(mapOf("dash" to 1), read.stats.rivalWins)
+        assertEquals(1, read.stats.teamWins)
+        assertEquals(1, read.stats.cupsEntered)
+        assertEquals(1, read.stats.cupsWon)
     }
 
     @Test
@@ -39,6 +46,10 @@ class StatsFileTest {
         val read = StatsFile.decode("""{"app": "TowerDuel", "format": 1, "stats": {"wins": 2, "towerPicks": {"bomb": 2}}}""")
         assertEquals(2, read.stats.wins)
         assertTrue(read.stats.rivalWins.isEmpty())
+        // Nor did it know about cups or 2 v 2.
+        assertEquals(0, read.stats.teamWins)
+        assertEquals(0, read.stats.cupsEntered)
+        assertEquals(0, read.stats.cupsWon)
     }
 
     @Test
@@ -61,7 +72,7 @@ class StatsFileTest {
     fun missingAndImpossibleNumbersAreRepaired() {
         val read = StatsFile.decode(
             """{"app": "TowerDuel", "format": 1, "stats": {
-                "wins": 4, "losses": -7, "streak": 5, "bestStreak": 2, "goldEarned": -1,
+                "wins": 4, "losses": -7, "streak": 5, "bestStreak": 2, "goldEarned": -1, "cupsWon": 3, "cupsEntered": 1,
                 "byDifficulty": {"HARD": {"wins": 4, "losses": -2}, "NIGHTMARE": {"wins": 9}},
                 "towerPicks": {"sentry": 3, "bomb": 0, "frost": -4}
             }}"""
@@ -73,6 +84,7 @@ class StatsFileTest {
         assertEquals(5, stats.streak)
         assertEquals(5, stats.bestStreak)
         assertEquals(0L, stats.goldEarned)
+        assertEquals(3, stats.cupsEntered)
         assertEquals(mapOf(Difficulty.HARD to DifficultyRecord(4, 0)), stats.byDifficulty)
         assertEquals(mapOf("sentry" to 3), stats.towerPicks)
         assertNull(read.exportedAt)

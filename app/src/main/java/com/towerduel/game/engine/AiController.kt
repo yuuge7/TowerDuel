@@ -57,8 +57,14 @@ private const val PULSE_TARGETS = 2.5f
 private const val CROWDING_SINGLE = 0.15f
 private const val CROWDING_AREA = 0.06f
 
+/** A single hit counts for no more than this many times the health of a typical unit on the lane. */
+private const val OVERKILL_HEALTH = 2f
+
+/** The reach a tower's listed damage is judged at when drafting; a shorter one sees less track, a longer one more. */
+private const val DRAFT_REACH = 22f
+
 /** What a Lookout's extra reach is worth against the same percentage of extra damage. */
-private const val RANGE_AURA_WORTH = 0.9f
+private const val RANGE_AURA_WORTH = 0.5f
 
 /** Share of the damage a Veteran can grow into that a new one is credited with before it has a single kill. */
 private const val GROWTH_CREDIT = 0.3f
@@ -157,6 +163,9 @@ class AiController(
     /** Typical health of what walks this lane now. Knockback does less the heavier the unit. */
     private var seenHp = 60f
 
+    /** True if something on this lane slows or stuns: what an Icebreaker needs to be worth its gold. */
+    private var controlOnLane = false
+
     // Grid of spots that are clear of the track. The track never changes, so this is built once.
     private var gridX = FloatArray(0)
     private var gridY = FloatArray(0)
@@ -224,6 +233,7 @@ class AiController(
     // -------------------------------------------------------------------
 
     private fun observeLane(own: Battlefield) {
+        controlOnLane = own.towers.any { it.slow > 0f || it.stunChance > 0f }
         seenFlying *= 0.92f
         seenSwarm *= 0.92f
         seenHeavy *= 0.92f
@@ -257,7 +267,7 @@ class AiController(
         val ahead = if (skill.timesPushes && engine.timeRemainingSec() <= SUDDEN_DEATH_PREP_SEC) 3 else 1
         var hp = maxOf(engine.waveHp(engine.round + ahead), walking)
         // A sharp player counts the opponent's purse as a push that has not been sent yet.
-        if (skill.timesPushes) hp += foe.gold * 0.8f
+        if (skill.timesPushes) hp += engine.teamGold(foe) * 0.8f
         // Cutting corners on defense is an opening gambit. In the second half the waves alone
         // punish it, so by then even the reckless build a full wall.
         val safety = if (engine.round * 2 >= engine.totalRounds) maxOf(style.safety, LATE_SAFETY) else style.safety
@@ -284,7 +294,10 @@ class AiController(
         execute: Float, blast: Float, coverage: Float
     ): Float {
         if (!type.isAttacker) return 0f
-        var dps = damage * shots * 1000f / reloadMs
+        // A shot cannot kill a unit more than once: what a big, slow hit has over the health of the
+        // units actually walking the lane is wasted, unless it splashes on to their neighbours.
+        val useful = if (splash > 0f || type.shot.isPulse) damage else minOf(damage, seenHp * OVERKILL_HEALTH)
+        var dps = useful * shots * 1000f / reloadMs
         if (crit > 0f) dps *= 1f + crit * (type.critMultiplier - 1f)
         // A beam is rarely on one unit long enough to reach full strength, and most of a wave
         // is dead before it has ramped at all.
@@ -294,6 +307,9 @@ class AiController(
         if (blast > 0f) dps *= 1f + blast
         // Cracked armour helps every other tower too, but only against the few units that wear any.
         if (type.sundersArmor) dps *= 1.1f
+        // The full bonus only where something holds units still for it; big units are a few of the many.
+        if (type.bonusVsControlledPct > 0f) dps *= 1f + type.bonusVsControlledPct / 100f * (if (controlOnLane) 0.5f else 0.1f)
+        if (type.bonusVsBigPct > 0f) dps *= 1f + type.bonusVsBigPct / 100f * 0.2f
         if (splash > 0f) dps *= 1f + splash / 9f
         if (chains > 0) dps *= 1f + 0.5f * chains
         if (pierce > 0) dps *= 1f + 0.35f * pierce
@@ -307,7 +323,8 @@ class AiController(
             ShotKind.NOVA_PULSE -> dps *= PULSE_TARGETS
             else -> {
                 // Burn on a tower that also splashes lands on most of what it touches.
-                dps += dot * (if (splash > 0f) 1.5f else 0.5f)
+                // Rot that jumps to the neighbours when its carrier dies lands on most of a pack in the end.
+                dps += dot * (if (splash > 0f || type.dotSpreadRadius > 0f) 1.5f else 0.5f)
                 // Glue: a slow thrown at a clump. A hook: one unit hauled back, as often as it reloads.
                 dps += slow * 30f * (1f + splash / 9f)
                 dps += knockback * 5.7f * budge * 1000f / reloadMs
@@ -388,6 +405,8 @@ class AiController(
         }
 
         for ((i, t) in own.towers.withIndex()) {
+            // In a 2 v 2 the lane also holds a partner's towers: they count as defense, but are not ours to upgrade.
+            if (t.owner !== own) continue
             val tier = t.nextUpgrade ?: continue
             if (worksAnywhere(t.type)) continue
             val gain = upgradeGain(engine, own, t, tier, powers, powers[i])
@@ -465,6 +484,7 @@ class AiController(
         if (hitsMany(type)) w *= 1f + (seenSwarm / 10f).coerceAtMost(0.6f)
         val hitsHard = type.damage >= 25f && type.splashRadius == 0f
         if (hitsHard || type.rampMax > 0f) w *= 1f + (seenHeavy / 2f).coerceAtMost(0.6f)
+        if (type.bonusVsBigPct > 0f) w *= 1f + (seenHeavy / 2f).coerceAtMost(0.5f)
         // Armour shrugs off small hits and is cut through by big ones.
         if (type.damage <= 8f && !type.shot.isPulse) w *= 1f - (seenArmor / 6f).coerceAtMost(0.4f)
         if (hitsHard) w *= 1f + (seenArmor / 6f).coerceAtMost(0.4f)
@@ -627,7 +647,7 @@ class AiController(
     /** Builds or upgrades a Gold Mine if one is drafted and still worth it. True if this think is spent on it. */
     private fun buyMine(engine: GameEngine, own: Battlefield): Boolean {
         val mineType = own.draftedTroops.firstOrNull { it.incomeBonusPerSecond > 0f } ?: return false
-        val mines = own.towers.filter { it.income > 0f }
+        val mines = own.towers.filter { it.income > 0f && it.owner === own }
         val secondsLeft = engine.timeRemainingSec().toFloat()
 
         val upgradable = mines.firstOrNull { it.nextUpgrade != null }
@@ -658,7 +678,7 @@ class AiController(
         val missing = engine.startingLives - own.lives
         if (missing < 8) return false
         val shrines = own.towers.filter { it.livesPerMinute > 0f }
-        val upgradable = shrines.firstOrNull { it.nextUpgrade != null }
+        val upgradable = shrines.firstOrNull { it.nextUpgrade != null && it.owner === own }
 
         if (shrines.isEmpty() || (shrines.size < 2 && upgradable == null && missing >= 25)) {
             if (own.gold >= shrineType.cost) {
@@ -751,6 +771,8 @@ class AiController(
                 if (unit.flying) score *= if (antiAir) 0.8f else 2f
                 if (crowd) score *= if (areaShare < 0.25f) 1.6f else 0.6f
                 if (escort) score *= if (escorting) 2.2f else 0.6f
+                // A Decoy is only worth sending in front of something worth protecting.
+                if (unit.taunts) score *= if (escorting) 1.8f else 0.5f
                 // One fat unit walks through a defense built to mow down crowds.
                 if (unit.maxHp >= 200f) score *= 1f + areaShare * 0.5f
                 if (unit.armor > 0f) score *= 1f + rapidShare * 1.5f
@@ -758,7 +780,8 @@ class AiController(
                 if (unit.phaseMs > 0L) score *= 1.3f
                 if (unit.regenPerSecond > 0f) score *= if (totalPower < 80f) 1.5f else 1.1f
                 // A bubble wastes slow, heavy shots and is gone in a blink under rapid fire.
-                if (unit.shieldHits > 0) score *= 1.5f - rapidShare
+                if (unit.shieldHits > 0 || unit.maxHitPct > 0f) score *= 1.5f - rapidShare
+                if (unit.blinkEveryMs > 0L || unit.chargeSpeedPct > 0f) score *= 1.2f
                 if (unit.cleanseRadius > 0f) score *= 1f + statusShare * 1.5f
                 if (unit.jamOnDeathMs > 0L) score *= 1.2f
                 // Lives are what a push is for: a unit that takes many for its size is worth more.
@@ -887,6 +910,10 @@ class AiController(
             if (type.pierce > 0) dps *= 1f + 0.35f * type.pierce
             dps *= 1f + type.executeBelowPct / 100f + type.bountyBonusPct / 400f
             dps *= 1f + type.deathBlastPct / 100f + type.killGrowthMaxPct / 100f * GROWTH_CREDIT
+            // Damage only counts while something is in reach: a short-range tower spends most of a wave idle.
+            if (type.isAttacker) dps *= (type.range / DRAFT_REACH).coerceIn(0.55f, 1.35f)
+            dps *= 1f + type.bonusVsControlledPct / 100f * 0.3f + type.bonusVsBigPct / 100f * 0.2f
+            if (type.dotSpreadRadius > 0f) dps += type.dotDamagePerSecond
             if (type.sundersArmor) dps *= 1.1f
             if (type.shot == ShotKind.NOVA_PULSE) dps *= PULSE_TARGETS
             dps += type.dotDamagePerSecond * PULSE_TARGETS + type.slowFactor * 45f + type.stunChance * 14f

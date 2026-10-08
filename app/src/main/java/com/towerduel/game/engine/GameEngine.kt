@@ -81,6 +81,16 @@ private const val BOUNTY_RUSH_PAY = 3f
 private const val CLEAR_SKIES_RANGE = 1.2f
 private const val THUNDERCLAP_SHARE = 0.33f
 private const val RECRUITING_INCOME = 2f
+private const val IRON_HIDE_DAMAGE = 0.7f
+private const val TAX_DAY_SHARE = 0.25f
+private const val RALLY_COOLDOWN = 0.5f
+
+/** Lives a keep stands back up with under the Second Chance rule. */
+private const val REVIVE_LIVES = 25
+
+/** A Railgun's shot carries this much past its own range, and catches units this far off its line. */
+private const val RAIL_REACH = 1.15f
+private const val RAIL_WIDTH = 1.2f
 
 class GameEngine(
     val map: MapDef,
@@ -89,7 +99,10 @@ class GameEngine(
     aiDraft: List<TroopType>,
     /** The units both sides may send this match, and what its waves are made of. */
     val roster: List<EnemySendType> = GameData.CLASSIC_ROSTER,
-    private val seed: Long = Random.nextLong()
+    private val seed: Long = Random.nextLong(),
+    /** For a 2 v 2: the hand of the second seat on each lane. Give both or neither. */
+    allyDraft: List<TroopType>? = null,
+    aiAllyDraft: List<TroopType>? = null
 ) {
     val path = LanePath(map.pathPoints)
     private val rng = Random(seed)
@@ -108,6 +121,30 @@ class GameEngine(
 
     val playerField = Battlefield("player", playerDraft, startingGold.toFloat(), startingLives)
     val aiField = Battlefield("ai", aiDraft, startingGold.toFloat(), startingLives)
+
+    /** The second seat on each lane in a 2 v 2: its own purse and hand, the same lane as its partner. */
+    val allyField: Battlefield? = allyDraft?.let { seatBeside(playerField, "ally", it) }
+    val aiAllyField: Battlefield? = aiAllyDraft?.let { seatBeside(aiField, "ai-ally", it) }
+    val isTeamMatch: Boolean get() = allyField != null || aiAllyField != null
+
+    /** Every purse in the match; and one seat per lane, for whatever happens once to a lane. */
+    private val seats: List<Battlefield> = listOfNotNull(playerField, allyField, aiField, aiAllyField)
+    private val lanes = arrayOf(playerField, aiField)
+
+    // Two purses behind every lane build twice the wall, so the units walking it are made to match.
+    private val teamHp = if (allyDraft != null || aiAllyDraft != null) GameData.TEAM_WAVE_HP else 1f
+    private val teamSize = if (allyDraft != null || aiAllyDraft != null) GameData.TEAM_WAVE_SIZE else 1f
+
+    init {
+        for (seat in lanes) seat.lane.revivesLeft = modifier.revives
+    }
+
+    private fun seatBeside(first: Battlefield, label: String, draft: List<TroopType>): Battlefield {
+        val seat = Battlefield(label, draft, startingGold.toFloat(), first.lane)
+        seat.partner = first
+        first.partner = seat
+        return seat
+    }
 
     var elapsedMs: Float = 0f
         private set
@@ -140,6 +177,9 @@ class GameEngine(
 
     // Units born from a kill (Splitlings) wait here until the lane's lists are safe to change.
     private val newborns = ArrayList<EnemyUnit>()
+
+    // Scratch list for a Railgun's shot: the units standing on its line.
+    private val onLine = ArrayList<EnemyUnit>()
 
     val suddenDeath: Boolean get() = elapsedMs >= matchDurationSec * 1000f
 
@@ -193,15 +233,19 @@ class GameEngine(
 
     fun incomePerSec(field: Battlefield): Float {
         var mines = 0f
-        for (t in field.towers) mines += t.income
+        for (t in field.towers) if (t.owner === field) mines += t.income
         return (GameData.BASE_INCOME_PER_SEC + field.ecoIncome) * incomeFactor() + mines
     }
+
+    /** The gold [field]'s whole team holds: its own purse and, in a 2 v 2, its partner's. */
+    fun teamGold(field: Battlefield): Float = field.gold + (field.partner?.gold ?: 0f)
 
     /** Income a send of [type] adds under this match's rules. */
     fun sendIncome(type: EnemySendType): Float = type.incomeBonus * modifier.sendIncomeMultiplier
 
     /** Milliseconds before [type] can be sent again under this match's rules. */
-    fun sendCooldownMs(type: EnemySendType): Float = type.cooldownMs * modifier.sendCooldownMultiplier
+    fun sendCooldownMs(type: EnemySendType): Float =
+        type.cooldownMs * modifier.sendCooldownMultiplier * (if (activeEvent() == MatchEventType.RALLY) RALLY_COOLDOWN else 1f)
 
     /** The wave level (1..WAVE_LEVELS) the match is at in [forRound]; also what gates the bigger sends. */
     private fun waveLevel(forRound: Int): Int =
@@ -260,7 +304,10 @@ class GameEngine(
         if (result != PlaceResult.OK) return result
         val (cx, cy) = clampToLane(x, y)
         field.gold -= type.cost
-        field.towers.add(TowerInstance(field.nextInstanceId++, type, cx, cy, elapsedMs))
+        val tower = TowerInstance(field.nextInstanceId++, type, cx, cy, elapsedMs)
+        tower.owner = field
+        repeat(modifier.freeTowerLevels) { tower.applyNextUpgrade(elapsedMs, free = true) }
+        field.towers.add(tower)
         field.stats.towersBuilt++
         refreshAuras(field)
         field.fx.add(FxEvent(FxKind.DUST, cx, cy, 420f, size = 4.5f))
@@ -270,7 +317,7 @@ class GameEngine(
 
     fun upgradeTower(field: Battlefield, instanceId: Long): Boolean {
         if (outcome != MatchOutcome.ONGOING) return false
-        val t = field.towers.find { it.instanceId == instanceId } ?: return false
+        val t = ownTower(field, instanceId) ?: return false
         val tier = t.nextUpgrade ?: return false
         if (field.gold < tier.cost) return false
         field.gold -= tier.cost
@@ -283,7 +330,7 @@ class GameEngine(
 
     fun sellTower(field: Battlefield, instanceId: Long): Boolean {
         if (outcome != MatchOutcome.ONGOING) return false
-        val t = field.towers.find { it.instanceId == instanceId } ?: return false
+        val t = ownTower(field, instanceId) ?: return false
         val refund = sellRefund(t)
         field.gold += refund + t.payoutBank
         field.towers.remove(t)
@@ -296,7 +343,7 @@ class GameEngine(
 
     /** Steps [instanceId]'s targeting to the next priority. Pulse and support towers have none. */
     fun cycleTargeting(field: Battlefield, instanceId: Long): Boolean {
-        val t = field.towers.find { it.instanceId == instanceId } ?: return false
+        val t = ownTower(field, instanceId) ?: return false
         if (!usesTargeting(t.type)) return false
         val all = TargetPriority.entries
         t.targeting = all[(t.targeting.ordinal + 1) % all.size]
@@ -304,6 +351,10 @@ class GameEngine(
     }
 
     fun usesTargeting(type: TroopType): Boolean = type.isAttacker && !type.shot.isPulse
+
+    /** [field]'s own tower with that id. A teammate's tower on the same lane is not: only its builder runs it. */
+    private fun ownTower(field: Battlefield, instanceId: Long): TowerInstance? =
+        field.towers.find { it.instanceId == instanceId && it.owner === field }
 
     fun sendEnemy(source: Battlefield, target: Battlefield, type: EnemySendType): SendResult {
         if (outcome != MatchOutcome.ONGOING) return SendResult.MATCH_OVER
@@ -338,14 +389,14 @@ class GameEngine(
         if (elapsedMs >= nextRoundAtMs) startNextRound()
         if (elapsedMs >= nextEventAtMs) startEvent()
 
-        tickField(playerField, dtSeconds)
-        tickField(aiField, dtSeconds)
+        for (seat in seats) earn(seat, (GameData.BASE_INCOME_PER_SEC + seat.ecoIncome) * incomeFactor() * dtSeconds)
+        for (seat in lanes) tickLane(seat, dtSeconds)
 
         resolveOutcome()
     }
 
-    private fun tickField(field: Battlefield, dtSeconds: Float) {
-        earn(field, (GameData.BASE_INCOME_PER_SEC + field.ecoIncome) * incomeFactor() * dtSeconds)
+    /** Everything that happens on [field]'s lane this tick. Called once per lane, however many seats share it. */
+    private fun tickLane(field: Battlefield, dtSeconds: Float) {
         towerPass(field, dtSeconds)
         projectilePass(field, dtSeconds)
         enemyPass(field, dtSeconds)
@@ -358,12 +409,12 @@ class GameEngine(
 
     /** The wave of [forRound]: generated once from the match seed, the same for both lanes. */
     private fun waveFor(forRound: Int): Wave = waves.getOrPut(forRound) {
-        WaveGenerator.generate(waveLevel(forRound), roster, Random(seed * 31L + forRound), modifier.waveSizeMultiplier)
+        WaveGenerator.generate(waveLevel(forRound), roster, Random(seed * 31L + forRound), modifier.waveSizeMultiplier * teamSize)
     }
 
     private fun levelHpScale(level: Int): Float {
         val late = (level - GameData.WAVE_LATE_FROM_LEVEL).coerceAtLeast(0)
-        return (1f + GameData.WAVE_HP_GROWTH_PER_LEVEL * (level - 1)) * GameData.WAVE_LATE_GROWTH.pow(late)
+        return (1f + GameData.WAVE_HP_GROWTH_PER_LEVEL * (level - 1)) * GameData.WAVE_LATE_GROWTH.pow(late) * teamHp
     }
 
     private fun waveHpScaleFor(forRound: Int): Float {
@@ -417,8 +468,10 @@ class GameEngine(
         when (type) {
             MatchEventType.GOLD_RAIN -> {
                 val gold = 50f + 10f * round
-                earn(playerField, gold)
-                earn(aiField, gold)
+                for (seat in seats) earn(seat, gold)
+            }
+            MatchEventType.TAX_DAY -> {
+                for (seat in seats) seat.gold -= seat.gold * TAX_DAY_SHARE
             }
             MatchEventType.SECOND_WIND -> {
                 for (field in arrayOf(playerField, aiField)) {
@@ -427,7 +480,7 @@ class GameEngine(
             }
             MatchEventType.AMBUSH -> {
                 val level = waveLevel(round.coerceAtLeast(1))
-                val wave = WaveGenerator.generate(level, roster, rng, AMBUSH_WAVE_SCALE * modifier.waveSizeMultiplier)
+                val wave = WaveGenerator.generate(level, roster, rng, AMBUSH_WAVE_SCALE * modifier.waveSizeMultiplier * teamSize)
                 release(wave, waveHpScaleFor(round.coerceAtLeast(1)), waveSpeedScaleFor(round))
             }
             MatchEventType.THUNDERCLAP -> {
@@ -444,7 +497,7 @@ class GameEngine(
             MatchEventType.TINKER -> {
                 for (field in arrayOf(playerField, aiField)) {
                     val tower = field.towers.filter { it.nextUpgrade != null }.randomOrNull(rng) ?: continue
-                    tower.applyNextUpgrade(elapsedMs)
+                    tower.applyNextUpgrade(elapsedMs, free = true)
                     refreshAuras(field)
                     field.fx.add(FxEvent(FxKind.SPARKLE, tower.x, tower.y, 900f, size = 6f, seed = rng.nextInt()))
                 }
@@ -458,6 +511,19 @@ class GameEngine(
     }
 
     private fun resolveOutcome() {
+        for (seat in lanes) {
+            val lane = seat.lane
+            if (lane.lives > 0 || lane.revivesLeft <= 0) continue
+            // Second Chance: the keep stands back up, and whatever was on its lane scatters.
+            lane.revivesLeft--
+            lane.lives = REVIVE_LIVES
+            for (e in lane.incomingEnemies) e.alive = false
+            lane.pendingSpawns.clear()
+            val last = path.pointCount - 1
+            lane.fx.add(FxEvent(FxKind.SPARKLE, path.xs[last], path.ys[last], 1200f, size = 9f, seed = rng.nextInt()))
+            lane.fx.add(FxEvent(FxKind.LIFE_GAIN, path.xs[last], path.ys[last] - 6f, 1400f, value = REVIVE_LIVES))
+            cue(SoundCue.UPGRADE, seat)
+        }
         val playerDead = playerField.lives <= 0
         val aiDead = aiField.lives <= 0
         val outOfTime = elapsedMs / 1000f >= matchDurationSec + GameData.OVERTIME_LIMIT_SEC
@@ -493,7 +559,7 @@ class GameEngine(
                 tower.payoutBank += tower.income * dtSeconds
                 if (tower.payoutBank >= MINE_PAYOUT_GOLD) {
                     val payout = tower.payoutBank.toInt()
-                    earn(field, payout.toFloat())
+                    earn(tower.owner ?: field, payout.toFloat())
                     tower.payoutBank -= payout
                     tower.lastFiredAtMs = elapsedMs
                     field.fx.add(FxEvent(FxKind.GOLD_TEXT, tower.x, tower.y - 3f, 900f, value = payout))
@@ -564,6 +630,8 @@ class GameEngine(
                 TargetPriority.CLOSEST -> -d2
             }
             if (huntsFlyers && e.type.flying) score += 1_000_000f
+            // A Decoy is what it says: whatever can reach it shoots it first.
+            if (e.type.taunts) score += 2_000_000f
             if (e.pendingDamage >= e.hp && e.shieldLeft == 0) {
                 if (score > doomedScore) {
                     doomedScore = score
@@ -584,8 +652,12 @@ class GameEngine(
             ShotKind.FROST_PULSE, ShotKind.POISON_PULSE, ShotKind.GUST_PULSE, ShotKind.QUAKE_PULSE, ShotKind.NOVA_PULSE ->
                 pulse(field, tower, range, damage)
             ShotKind.RAIL -> {
-                field.fx.add(FxEvent(FxKind.TRACER, muzzleX(tower), muzzleY(tower), 180f, x2 = primary.x, y2 = primary.y, tower = tower.type))
-                hit(field, tower, primary, damage)
+                if (tower.pierce > 0) {
+                    railLine(field, tower, primary, damage, range)
+                } else {
+                    field.fx.add(FxEvent(FxKind.TRACER, muzzleX(tower), muzzleY(tower), 180f, x2 = primary.x, y2 = primary.y, tower = tower.type))
+                    hit(field, tower, primary, damage)
+                }
                 cue(SoundCue.SHOOT_HEAVY, field)
             }
             ShotKind.BEAM -> {
@@ -652,6 +724,39 @@ class GameEngine(
                 val heavy = tower.type.shot == ShotKind.SHELL || tower.type.shot == ShotKind.ROCKET
                 cue(if (heavy) SoundCue.SHOOT_HEAVY else SoundCue.SHOOT, field)
             }
+        }
+    }
+
+    /**
+     * A Railgun's shot: through [primary] and on along the same straight line, into as many more
+     * units as it can pierce, the nearest to the tower first.
+     */
+    private fun railLine(field: Battlefield, tower: TowerInstance, primary: EnemyUnit, damage: Float, range: Float) {
+        val dx = primary.x - tower.x
+        val dy = primary.y - tower.y
+        val len = sqrt(dx * dx + dy * dy).coerceAtLeast(0.01f)
+        val ux = dx / len
+        val uy = dy / len
+        val reach = maxOf(range * RAIL_REACH, len)
+        field.fx.add(
+            FxEvent(FxKind.TRACER, muzzleX(tower), muzzleY(tower), 220f, x2 = tower.x + ux * reach, y2 = tower.y + uy * reach, tower = tower.type)
+        )
+        onLine.clear()
+        for (i in field.incomingEnemies.indices) {
+            val e = field.incomingEnemies[i]
+            if (e === primary || !canBeHit(e)) continue
+            val px = e.x - tower.x
+            val py = e.y - tower.y
+            val along = px * ux + py * uy
+            if (along < 0f || along > reach || abs(px * uy - py * ux) > e.type.radius + RAIL_WIDTH) continue
+            onLine.add(e)
+        }
+        onLine.sortBy { (it.x - tower.x) * ux + (it.y - tower.y) * uy }
+        hit(field, tower, primary, damage)
+        for (i in 0 until minOf(tower.pierce, onLine.size)) {
+            val e = onLine[i]
+            field.fx.add(FxEvent(FxKind.HIT, e.x, e.y, 160f, size = 1.6f, tower = tower.type))
+            hit(field, tower, e, damage)
         }
     }
 
@@ -869,9 +974,16 @@ class GameEngine(
         } else {
             dmg * (1f - resistance / 100f)
         }
+        if (tower.controlBonus > 0f && (elapsedMs < target.slowExpiresAtMs || elapsedMs < target.stunExpiresAtMs)) {
+            dmg *= 1f + tower.controlBonus
+        }
+        if (tower.bigBonus > 0f && unit.maxHp >= GameData.BIG_UNIT_HP) dmg *= 1f + tower.bigBonus
         if (elapsedMs < target.vulnerableUntilMs) dmg *= 1f + target.vulnerability
         if (elapsedMs < target.wardUntilMs) dmg *= 1f - target.ward
+        if (activeEvent() == MatchEventType.IRON_HIDE) dmg *= IRON_HIDE_DAMAGE
         if (armor > 0f) dmg = maxOf(dmg - armor, dmg * (1f - ARMOR_MAX_REDUCTION))
+        // A Tortoise's shell takes the top off any big hit, until a Ballista has cracked it.
+        if (unit.maxHitPct > 0f && !target.sundered) dmg = minOf(dmg, target.maxHp * unit.maxHitPct / 100f)
         target.hp -= dmg.coerceAtLeast(0f)
         target.lastHitAtMs = elapsedMs
         if (crit) field.fx.add(FxEvent(FxKind.CRIT, target.x, target.y - unit.radius, 520f, size = unit.radius))
@@ -914,10 +1026,10 @@ class GameEngine(
     private fun kill(field: Battlefield, enemy: EnemyUnit, by: TowerInstance?) {
         enemy.alive = false
         if (by != null) by.kills++
-        field.stats.kills++
+        (by?.owner ?: field).stats.kills++
         val rush = if (activeEvent() == MatchEventType.BOUNTY_RUSH) BOUNTY_RUSH_PAY else 1f
         val bounty = (enemy.type.bountyGold * modifier.bountyMultiplier * rush * (1f + (by?.bountyBonus ?: 0f))).roundToInt()
-        earn(field, bounty.toFloat())
+        earnShared(field, bounty.toFloat())
         field.fx.add(FxEvent(FxKind.POP, enemy.x, enemy.y, 420f, size = enemy.type.radius, unit = enemy.type, seed = rng.nextInt()))
         if (bounty > 0) {
             field.fx.add(FxEvent(FxKind.GOLD_TEXT, enemy.x, enemy.y - enemy.type.radius, 800f, value = bounty))
@@ -925,6 +1037,17 @@ class GameEngine(
         cue(if (enemy.type.radius >= 3f) SoundCue.POP_BIG else SoundCue.POP, field)
 
         if (enemy.type.jamOnDeathMs > 0L) jamTowers(field, enemy)
+
+        // A Blighter's rot outlives its carrier: it jumps to whatever stood close by and is not rotting yet.
+        val rot = enemy.dotSource
+        if (rot != null && rot.dotSpread > 0f && elapsedMs < enemy.dotExpiresAtMs) {
+            field.fx.add(FxEvent(FxKind.POISON_CLOUD, enemy.x, enemy.y, 520f, size = rot.dotSpread))
+            for (i in field.incomingEnemies.indices) {
+                val e = field.incomingEnemies[i]
+                if (!e.alive || elapsedMs < e.dotExpiresAtMs || dist(enemy.x, enemy.y, e.x, e.y) > rot.dotSpread) continue
+                hit(field, rot, e, 0f)
+            }
+        }
 
         val childId = enemy.type.spawnOnDeathId
         if (childId != null) {
@@ -996,12 +1119,14 @@ class GameEngine(
         val haste = if (elapsedMs < enemy.hasteUntilMs) 1f + enemy.haste else 1f
         // A Berserker speeds up in step with the health it has lost.
         val rage = 1f + enemy.type.enrageSpeedPct / 100f * (1f - enemy.hp / enemy.maxHp).coerceIn(0f, 1f)
+        // A Lancer charges until something lands on it.
+        val charge = if (enemy.type.chargeSpeedPct > 0f && enemy.lastHitAtMs < enemy.bornAtMs) 1f + enemy.type.chargeSpeedPct / 100f else 1f
         val weather = when (activeEvent()) {
             MatchEventType.STAMPEDE -> STAMPEDE_SPEED
             MatchEventType.COLD_SNAP -> COLD_SNAP_SPEED
             else -> 1f
         }
-        return enemy.type.speed * enemy.speedScale * modifier.speedMultiplier * status * haste * rage * weather
+        return enemy.type.speed * enemy.speedScale * modifier.speedMultiplier * status * haste * rage * charge * weather
     }
 
     private fun enemyPass(field: Battlefield, dtSeconds: Float) {
@@ -1041,7 +1166,8 @@ class GameEngine(
             for (j in enemies.indices) {
                 val target = enemies[j]
                 if (!target.alive || abs(target.dist - source.dist) > radius) continue
-                if (heals) target.hp = (target.hp + source.type.healPerSecond * dtSeconds).coerceAtMost(target.maxHp)
+                // A healer mends as much more as it is itself tougher than listed, so it never goes stale.
+                if (heals) target.hp = (target.hp + source.type.healPerSecond * hpScaleOf(source) * dtSeconds).coerceAtMost(target.maxHp)
                 if (hastens) {
                     target.haste = source.type.hasteAuraPct / 100f
                     target.hasteUntilMs = elapsedMs + HASTE_LINGER_MS
@@ -1084,6 +1210,14 @@ class GameEngine(
                 enemy.hp = (enemy.hp + enemy.type.regenPerSecond * dtSeconds).coerceAtMost(enemy.maxHp)
             }
 
+            if (enemy.type.blinkEveryMs > 0L && elapsedMs >= enemy.nextBlinkAtMs && elapsedMs >= enemy.stunExpiresAtMs &&
+                enemy.x >= MIN_TARGET_X
+            ) {
+                // An Imp is gone from here and a little further on.
+                enemy.nextBlinkAtMs = elapsedMs + enemy.type.blinkEveryMs
+                field.fx.add(FxEvent(FxKind.DUST, enemy.x, enemy.y, 320f, size = 2.5f))
+                enemy.dist += enemy.type.blinkDist
+            }
             enemy.dist += unitSpeed(enemy) * dtSeconds
             if (enemy.dist >= path.length) {
                 enemy.alive = false
@@ -1092,11 +1226,16 @@ class GameEngine(
                 field.lastLeakAtMs = elapsedMs
                 field.fx.add(FxEvent(FxKind.LIFE_TEXT, enemy.x, enemy.y - 4f, 1000f, value = enemy.type.livesDamage))
                 if (enemy.type.stealsIncomeSec > 0f) {
-                    // A Bandit got home: the loot goes to the other side.
-                    val loot = minOf(field.gold, incomePerSec(field) * enemy.type.stealsIncomeSec).toInt()
+                    // A Bandit got home: every purse behind this lane is lighter, and the other side richer.
+                    var loot = 0
+                    for (seat in seats) {
+                        if (seat.lane !== field.lane) continue
+                        val taken = minOf(seat.gold, incomePerSec(seat) * enemy.type.stealsIncomeSec).toInt()
+                        seat.gold -= taken
+                        loot += taken
+                    }
                     if (loot > 0) {
-                        field.gold -= loot
-                        earn(if (field === playerField) aiField else playerField, loot.toFloat())
+                        earnShared(if (field.lane === playerField.lane) aiField else playerField, loot.toFloat())
                         field.fx.add(FxEvent(FxKind.GOLD_LOSS, enemy.x - 5f, enemy.y + 1f, 1100f, value = loot))
                     }
                 }
@@ -1135,6 +1274,17 @@ class GameEngine(
     private fun earn(field: Battlefield, amount: Float) {
         field.gold += amount
         field.stats.goldEarned += amount
+    }
+
+    /** What a lane takes in (bounties, loot) is split evenly between the seats defending it. */
+    private fun earnShared(field: Battlefield, amount: Float) {
+        val partner = field.partner
+        if (partner == null) {
+            earn(field, amount)
+        } else {
+            earn(field, amount / 2f)
+            earn(partner, amount / 2f)
+        }
     }
 
     private fun cue(cue: SoundCue, field: Battlefield?) {

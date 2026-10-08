@@ -70,6 +70,14 @@ private fun paletteFor(theme: MapTheme): TerrainPalette = when (theme) {
         ground = Color(0xFF36527A), groundLight = Color(0xFF45658F), groundDark = Color(0xFF2A4265),
         track = Color(0xFFB9C6DA), trackLight = Color(0xFFD5DEEC), trackEdge = Color(0xFF6B7C99)
     )
+    MapTheme.SKY -> TerrainPalette(
+        ground = Color(0xFF9FD3F5), groundLight = Color(0xFFCBE8FB), groundDark = Color(0xFF7FBFEA),
+        track = Color(0xFFF6D98A), trackLight = Color(0xFFFFEDB8), trackEdge = Color(0xFFCFA348)
+    )
+    MapTheme.RUINS -> TerrainPalette(
+        ground = Color(0xFF9AA58C), groundLight = Color(0xFFAEB89F), groundDark = Color(0xFF86917A),
+        track = Color(0xFFD9D2C0), trackLight = Color(0xFFE9E4D6), trackEdge = Color(0xFF8E8571)
+    )
 }
 
 /**
@@ -222,6 +230,20 @@ private fun DrawScope.groundDetail(theme: MapTheme, pal: TerrainPalette, x: Floa
             val dy = (rnd.nextFloat() - 0.5f) * 1.6f * u
             drawLine(sprinkle, Offset(x, y), Offset(x + dx, y + dy), 0.4f * u, StrokeCap.Round)
         }
+        MapTheme.SKY -> {
+            // A wisp of cloud
+            val len = (1.2f + rnd.nextFloat() * 1.8f) * u
+            drawOval(Color.White.copy(alpha = 0.55f), Offset(x - len, y - 0.3f * u), Size(len * 2f, 0.6f * u))
+        }
+        MapTheme.RUINS -> if (rnd.nextFloat() < 0.5f) {
+            // A crack in the old paving
+            val dx = (rnd.nextFloat() - 0.5f) * 2.6f * u
+            val dy = (rnd.nextFloat() - 0.5f) * 1.6f * u
+            drawLine(pal.groundDark.darken(0.2f), Offset(x, y), Offset(x + dx, y + dy), stroke, StrokeCap.Round)
+        } else {
+            // Moss
+            drawOval(Color(0xFF6FA35A).copy(alpha = 0.6f), Offset(x - 0.7f * u, y - 0.35f * u), Size(1.4f * u, 0.7f * u))
+        }
         MapTheme.NIGHT -> if (rnd.nextFloat() < 0.4f) {
             // A firefly
             drawCircle(Color(0xFFFFF2A0).copy(alpha = 0.25f), 0.7f * u, Offset(x, y))
@@ -365,6 +387,31 @@ private fun DrawScope.prop(theme: MapTheme, pal: TerrainPalette, x: Float, y: Fl
                 drawArc(drops[k], 180f, 180f, true, Offset(gx - 0.8f * u, gy - 0.9f * u), Size(1.6f * u, 1.8f * u))
                 drawCircle(Color.White.copy(alpha = 0.7f), 0.18f * u, Offset(gx - 0.3f * u, gy - 0.5f * u))
             }
+        }
+        MapTheme.SKY -> if (pick < 0.7f) {
+            // A cloud
+            blob(Color.White, x - 1.1f * u, y + 0.3f * u, 1f * u, ow)
+            blob(Color.White, x + 1.2f * u, y + 0.35f * u, 0.9f * u, ow)
+            blob(Color.White, x, y - 0.35f * u, 1.3f * u, ow)
+            drawRoundRect(Color.White, Offset(x - 1.6f * u, y - 0.1f * u), Size(3.3f * u, 1.2f * u), CornerRadius(0.6f * u))
+            drawCircle(pal.groundLight, 0.5f * u, Offset(x + 0.3f * u, y + 0.5f * u))
+        } else {
+            // A fallen star
+            drawCircle(Color(0xFFFFE066).copy(alpha = 0.3f), 1.6f * u, Offset(x, y))
+            drawStar(Color(0xFFFFE066), x, y, 1.2f * u, ow)
+        }
+        MapTheme.RUINS -> if (pick < 0.5f) {
+            // The stump of a column, seen from above
+            blob(Color(0xFFE2DCCB), x, y, 1.25f * u, ow)
+            drawCircle(Color(0xFFBDB5A0), 0.8f * u, Offset(x, y))
+            drawCircle(Color(0xFFE2DCCB), 0.8f * u, Offset(x, y), style = Stroke(0.2f * u))
+            drawCircle(Color(0xFF6FA35A), 0.3f * u, Offset(x + 0.7f * u, y + 0.6f * u))
+        } else {
+            // Fallen blocks
+            val stone = Color(0xFFCFC8B4)
+            slab(stone.darken(0.12f), x - 1.5f * u, y - 0.2f * u, 1.7f * u, 1.1f * u, 0.2f * u, ow)
+            slab(stone, x - 0.2f * u, y - 0.9f * u, 1.8f * u, 1.2f * u, 0.2f * u, ow)
+            drawCircle(Color(0xFF6FA35A), 0.28f * u, Offset(x - 1.1f * u, y + 0.75f * u))
         }
         MapTheme.NIGHT -> if (pick < 0.55f) {
             // Mushrooms that glow in the dark

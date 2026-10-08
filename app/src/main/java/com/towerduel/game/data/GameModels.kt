@@ -30,7 +30,9 @@ enum class ShotKind {
  * One step of a tower's upgrade track. Multipliers stack on top of every earlier tier.
  * [effectMult] scales whatever the tower's special is: slow, stun or crit chance, poison,
  * income, any aura, lives restored, knockback, weakening, execute threshold, bounty bonus,
- * how far a beam ramps, what a kill teaches a Veteran, or how hard a Detonator's kills blow up.
+ * how far a beam ramps, what a kill teaches a Veteran, how hard a Detonator's kills blow up, or
+ * how much more an Icebreaker or a Giant Slayer does to the units it is made for.
+ * [splashMult] also widens a Detonator's blasts and how far a Blighter's rot jumps.
  * [extraChains] adds chain jumps, or cuts for a tower that pierces.
  */
 data class UpgradeTier(
@@ -82,7 +84,7 @@ data class TroopType(
     /** Lives this tower gives back to its keep, never above what the match started with. */
     val livesPerMinute: Float = 0f,
     val bonusDamageVsFlyerPct: Float = 0f,
-    /** How many units past the first a GLAIVE cuts through. */
+    /** How many units past the first a GLAIVE cuts through, or a RAIL goes on to hit along its line. */
     val pierce: Int = 0,
     val critChance: Float = 0f,
     val critMultiplier: Float = 1f,
@@ -106,6 +108,12 @@ data class TroopType(
     /** A unit this tower kills blows up: this share of its full health to everything within [deathBlastRadius]. */
     val deathBlastPct: Float = 0f,
     val deathBlastRadius: Float = 0f,
+    /** Extra damage to a unit that is slowed or stunned when the hit lands. */
+    val bonusVsControlledPct: Float = 0f,
+    /** Extra damage to the big units: those of GameData.BIG_UNIT_HP listed health or more. */
+    val bonusVsBigPct: Float = 0f,
+    /** When a unit carrying this tower's poison dies, the poison jumps to every unit this close to it. */
+    val dotSpreadRadius: Float = 0f,
     val description: String
 ) {
     val maxLevel: Int get() = upgrades.size
@@ -161,6 +169,15 @@ data class EnemySendType(
     /** Lays a [spawnEveryId] unit this often as it walks. */
     val spawnEveryMs: Long = 0L,
     val spawnEveryId: String? = null,
+    /** No single hit takes more than this share of its full health. */
+    val maxHitPct: Float = 0f,
+    /** Jumps [blinkDist] lane units down the track this often. */
+    val blinkEveryMs: Long = 0L,
+    val blinkDist: Float = 0f,
+    /** Moves this much faster until the first hit lands on it. */
+    val chargeSpeedPct: Float = 0f,
+    /** Every tower that can reach it shoots it before anything else. */
+    val taunts: Boolean = false,
     /** Sending this raises the sender's income by this much gold per second for the rest of the match. */
     val incomeBonus: Float = 0f,
     val unlockRound: Int = 1,
@@ -171,7 +188,7 @@ data class EnemySendType(
     val description: String
 )
 
-enum class MapTheme { MEADOW, DUNES, FROST, EMBER, SWAMP, AUTUMN, CRYSTAL, CANDY, NIGHT }
+enum class MapTheme { MEADOW, DUNES, FROST, EMBER, SWAMP, AUTUMN, CRYSTAL, CANDY, NIGHT, SKY, RUINS }
 
 /** [pathPoints] are control points; the lane path is a smooth curve through them (see LanePath). */
 data class MapDef(
@@ -205,6 +222,10 @@ data class MatchModifier(
     val eventGapMultiplier: Float = 1f,
     /** Share of what a tower cost that selling it gives back, if not the usual. */
     val sellRefundFraction: Float? = null,
+    /** Upgrade tiers every tower already has when it is built, at no cost. */
+    val freeTowerLevels: Int = 0,
+    /** How many times a keep that has fallen stands back up. */
+    val revives: Int = 0,
     /** The rival is offered the same towers as the player. */
     val mirrorDraft: Boolean = false
 ) {
@@ -237,6 +258,8 @@ data class MatchModifier(
         sendCooldownMultiplier = sendCooldownMultiplier * other.sendCooldownMultiplier,
         eventGapMultiplier = eventGapMultiplier * other.eventGapMultiplier,
         sellRefundFraction = sellRefundFraction ?: other.sellRefundFraction,
+        freeTowerLevels = freeTowerLevels + other.freeTowerLevels,
+        revives = revives + other.revives,
         mirrorDraft = mirrorDraft || other.mirrorDraft
     )
 }
@@ -266,7 +289,17 @@ enum class MatchEventType(val label: String, val blurb: String, val durationSec:
     TINKER("Tinker's Gift", "A tower on each side is upgraded for free", 0),
     CLEAR_SKIES("Clear Skies", "Towers reach 20% further", 12),
     BLACKOUT("Blackout", "No tower fires", 4),
-    RECRUITING("Recruiting", "Sends raise income twice as much", 14)
+    RECRUITING("Recruiting", "Sends raise income twice as much", 14),
+    IRON_HIDE("Iron Hide", "Units shrug off 30% of all damage", 10),
+    TAX_DAY("Tax Day", "Everyone loses a quarter of their gold", 0),
+    RALLY("Rally", "Sends are ready twice as fast", 14)
+}
+
+/** What kind of game the player sits down to. */
+enum class GameMode(val label: String, val blurb: String) {
+    DUEL("Duel", "One match, one rival."),
+    TEAM("2 v 2", "You and an ally share a lane against two rivals."),
+    CUP("Cup", "Eight in the bracket, three rounds. Lose once and you are out.")
 }
 
 enum class Difficulty(val label: String, val blurb: String) {

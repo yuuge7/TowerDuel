@@ -338,6 +338,11 @@ private fun BestsPanel(stats: LifetimeStats) {
             StatTile("Highest round", "${stats.bestRound}", Modifier.weight(1f))
             StatTile("Most pops", compact(stats.mostPops.toLong()), Modifier.weight(1f))
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatTile("Cups won", "${stats.cupsWon}", Modifier.weight(1f))
+            StatTile("Cups entered", "${stats.cupsEntered}", Modifier.weight(1f))
+            StatTile("2 v 2 wins", compact(stats.teamWins.toLong()), Modifier.weight(1f))
+        }
     }
 }
 

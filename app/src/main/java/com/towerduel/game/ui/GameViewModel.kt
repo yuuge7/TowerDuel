@@ -14,11 +14,13 @@ import com.towerduel.game.data.AiPersonality
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.EnemySendType
 import com.towerduel.game.data.GameData
+import com.towerduel.game.data.GameMode
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.MatchModifier
 import com.towerduel.game.data.Rival
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.AiController
+import com.towerduel.game.engine.Battlefield
 import com.towerduel.game.engine.GameEngine
 import com.towerduel.game.engine.MapGenerator
 import com.towerduel.game.engine.MatchOutcome
@@ -33,6 +35,7 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 /** A short message shown over the battle; [id] makes a repeat of the same text count as new. */
 data class Notice(val text: String, val id: Int)
@@ -64,8 +67,16 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** The AI-versus-AI match that plays on the main menu; null while the first one is being prepared. */
     var demo by mutableStateOf<DemoMatch?>(null)
 
+    /** The mode picked on the main menu. */
+    var selectedMode by mutableStateOf(profile.lastMode)
+        private set
+
     // ---- Pre-match setup (rerolled each time a match is queued) ----
     var selectedDifficulty by mutableStateOf(profile.lastDifficulty)
+        private set
+
+    /** What kind of match is set up or being played. A cup match is a duel that a bracket hangs on. */
+    var matchMode by mutableStateOf(GameMode.DUEL)
         private set
     var offeredTroops by mutableStateOf<List<TroopType>>(emptyList())
         private set
@@ -82,6 +93,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var rival by mutableStateOf<Rival>(GameData.RIVALS.first())
         private set
+
+    // A 2 v 2 has three more seats: a second rival, and an ally who shares the player's lane.
+    var rival2 by mutableStateOf<Rival?>(null)
+        private set
+    var ally by mutableStateOf<Rival?>(null)
+        private set
+    var allyDraft by mutableStateOf<List<TroopType>>(emptyList())
+        private set
+    private var aiDraft2: List<TroopType> = emptyList()
     var roster by mutableStateOf<List<EnemySendType>>(GameData.CLASSIC_ROSTER)
         private set
     val aiPersonality: AiPersonality get() = rival.personality
@@ -114,7 +134,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Live match ----
     var engine by mutableStateOf<GameEngine?>(null)
         private set
-    private var aiController: AiController? = null
+
+    /** One AI and the seat it plays: its own purse, and the lane it sends its units down. */
+    private class AiSeat(val ai: AiController, val own: Battlefield, val foe: Battlefield)
+    private var aiSeats: List<AiSeat> = emptyList()
 
     private var frame by mutableIntStateOf(0)
 
@@ -142,17 +165,57 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private var accumulator = 0f
     private var resultRecorded = false
 
-    fun rollNewMatchSetup(difficulty: Difficulty) {
+    fun selectMode(mode: GameMode) {
+        selectedMode = mode
+        profile.rememberMode(mode)
+    }
+
+    fun rollNewMatchSetup(difficulty: Difficulty, mode: GameMode = selectedMode) {
         selectedDifficulty = difficulty
-        profile.rememberDifficulty(difficulty)
+        matchMode = mode
+        // A cup's final is played a step harder than the player chose; that is not a new choice to remember.
+        if (mode != GameMode.CUP) profile.rememberDifficulty(difficulty)
         offeredTroops = GameData.randomDraft()
         pickedTroops = emptyList()
         rules = GameData.randomRules()
         modifier = rules.reduce { all, rule -> all + rule }
-        rival = GameData.RIVALS.random()
+        val cupRival = if (mode == GameMode.CUP) profile.cup?.opponentId else null
+        rival = GameData.RIVALS.firstOrNull { it.id == cupRival } ?: GameData.RIVALS.random()
         roster = GameData.randomRoster()
         map = MapGenerator.randomMap()
         aiDraft = AiController.pickDraft(if (modifier.mirrorDraft) offeredTroops else GameData.randomDraft(), difficulty)
+
+        if (mode == GameMode.TEAM) {
+            val others = GameData.RIVALS.filter { it != rival }.shuffled()
+            rival2 = others[0]
+            ally = others[1]
+            aiDraft2 = AiController.pickDraft(GameData.randomDraft(), difficulty)
+            allyDraft = AiController.pickDraft(GameData.randomDraft(), difficulty)
+        } else {
+            rival2 = null
+            ally = null
+            allyDraft = emptyList()
+        }
+    }
+
+    // ---- The cup ----------------------------------------------------------------
+
+    /** Opens the cup in progress, or enters a new one at [difficulty] if there is none (or the last one is over). */
+    fun enterCup(difficulty: Difficulty) {
+        val current = profile.cup
+        if (current == null || current.isOver) profile.saveCup(Cup.start(difficulty))
+    }
+
+    fun newCup() = profile.saveCup(Cup.start((profile.cup?.difficulty ?: selectedDifficulty)))
+
+    fun abandonCup() = profile.saveCup(null)
+
+    /** Sets up the player's next cup match. False if there is none to play. */
+    fun rollCupMatch(): Boolean {
+        val cup = profile.cup ?: return false
+        if (cup.isOver) return false
+        rollNewMatchSetup(cup.matchDifficulty, GameMode.CUP)
+        return true
     }
 
     fun toggleDraftPick(troop: TroopType) {
@@ -171,9 +234,19 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (draftProblem != null) return
         // Keep the build bar in the order the towers were offered, not the order they were tapped.
         pickedTroops = offeredTroops.filter { it in pickedTroops }
-        val eng = GameEngine(map, modifier, pickedTroops, aiDraft, roster)
+        val team = matchMode == GameMode.TEAM
+        val eng = GameEngine(
+            map, modifier, pickedTroops, aiDraft, roster,
+            allyDraft = if (team) allyDraft else null, aiAllyDraft = if (team) aiDraft2 else null
+        )
         engine = eng
-        aiController = AiController(rival.personality, selectedDifficulty)
+        val seats = ArrayList<AiSeat>()
+        seats.add(AiSeat(AiController(rival.personality, selectedDifficulty), eng.aiField, eng.playerField))
+        val rivalSeat = eng.aiAllyField
+        val allySeat = eng.allyField
+        if (rivalSeat != null) seats.add(AiSeat(AiController((rival2 ?: rival).personality, selectedDifficulty), rivalSeat, eng.playerField))
+        if (allySeat != null) seats.add(AiSeat(AiController((ally ?: rival).personality, selectedDifficulty), allySeat, eng.aiField))
+        aiSeats = seats
         rivalLine = null
         rivalGreeted = false
         rivalPushed = false
@@ -202,7 +275,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         var steps = 0
         while (accumulator >= STEP_SECONDS && steps < MAX_STEPS_PER_FRAME) {
             eng.update(STEP_SECONDS)
-            aiController?.update(STEP_SECONDS, eng, eng.aiField, eng.playerField)
+            for (seat in aiSeats) seat.ai.update(STEP_SECONDS, eng, seat.own, seat.foe)
             accumulator -= STEP_SECONDS
             steps++
         }
@@ -214,6 +287,16 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (eng.outcome != MatchOutcome.ONGOING && !resultRecorded) {
             resultRecorded = true
             val mine = eng.playerField
+            // A cup match moves the bracket on. A draw decides nothing: the round is played again.
+            var cupEntered = false
+            var cupWon = false
+            val cup = profile.cup
+            if (matchMode == GameMode.CUP && cup != null && !cup.isOver && eng.outcome != MatchOutcome.DRAW) {
+                cupEntered = cup.round == 0
+                val next = cup.afterPlayerMatch(eng.outcome == MatchOutcome.PLAYER_WIN, Random.Default)
+                profile.saveCup(next)
+                cupWon = next.playerWon
+            }
             profile.record(
                 MatchRecord(
                     outcome = eng.outcome,
@@ -226,7 +309,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                     goldEarned = mine.stats.goldEarned.toInt(),
                     towersBuilt = mine.stats.towersBuilt,
                     livesLost = (eng.startingLives - mine.lives).coerceAtLeast(0),
-                    rivalId = rival.id
+                    rivalId = rival.id,
+                    teamMatch = matchMode == GameMode.TEAM,
+                    cupEntered = cupEntered,
+                    cupWon = cupWon
                 )
             )
             ghost = null
@@ -294,9 +380,17 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         fastForward = !fastForward
     }
 
-    /** Abandons the current match. The engine is kept so the screen can finish animating out. */
+    /**
+     * Abandons the current match. The engine is kept so the screen can finish animating out.
+     * Walking out of a cup match forfeits it: the rival goes through.
+     */
     fun quitMatch() {
-        aiController = null
+        val cup = profile.cup
+        if (matchMode == GameMode.CUP && cup != null && !cup.isOver && matchRunning() && !resultRecorded) {
+            resultRecorded = true
+            profile.saveCup(cup.afterPlayerMatch(won = false, Random.Default))
+        }
+        aiSeats = emptyList()
         paused = false
         armedTroop = null
         selectedTowerId = null

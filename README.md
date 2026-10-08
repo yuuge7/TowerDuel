@@ -28,10 +28,15 @@ only bundled assets are two open-licensed fonts.
 
 ## Features
 
-- **Draft your defense.** Each match offers you 6 of the 32 towers and you
+- **Three ways to play.** A **Duel** is one match against one rival. In a
+  **2 v 2** you and an AI ally share a lane, each with your own gold and
+  your own towers, against two rivals who share theirs. The **Cup** is a
+  knockout of eight: three rounds, the final a step harder, and one loss
+  puts you out.
+- **Draft your defense.** Each match offers you 6 of the 38 towers and you
   keep 4. The AI drafts from its own offer, so neither side knows what the
   other holds until the towers go down.
-- **32 towers**, each with a four-step upgrade track. Besides plain guns
+- **38 towers**, each with a four-step upgrade track. Besides plain guns
   there is splash (Bomb Tower, Mortar), chain lightning (Tesla Coil), slows
   (Frost Spire, and the Glue Gun for a clump at a distance), stuns (Stun
   Turret, and Thumper for a whole crowd), poison and fire (Poison Totem,
@@ -43,24 +48,30 @@ only bundled assets are two open-licensed fonts.
   lane (Comet Caller), volleys of rockets (Missile Pod), a pulse of plain
   damage (Pulsar), bolts that strip armour for good (Ballista), a gun that
   hits harder with every kill (Veteran), kills that blow up and set off the
-  pack (Detonator), auras for damage, fire rate and reach (Beacon,
-  Overclocker, Lookout), a Shrine that gives lost lives back, and pure
-  economy (Gold Mine).
+  pack (Detonator), a shot that goes through a whole line (Railgun), a gun
+  that punishes whatever is slowed or stunned (Icebreaker), a spear for
+  the biggest units (Giant Slayer), a throw that pins one unit down
+  (Bolas), a point-blank blast (Scattergun), rot that jumps to the
+  neighbours when its carrier dies (Blighter), auras for damage, fire rate
+  and reach (Beacon, Overclocker, Lookout), a Shrine that gives lost lives
+  back, and pure economy (Gold Mine).
 - **Build them as close as you like.** Towers can stand almost shoulder to
   shoulder, their stone bases merging into one pavement, so a good corner
   can hold a whole battery. Towers in a cluster spread their fire: none of
   them wastes a shot on a unit that is already as good as dead.
-- **28 units, 12 per match.** Every match rolls its own roster: Runner and
-  Grunt, one finisher (Boss, Juggernaut or Warlord) and nine of Swarm,
-  Drummer, Flyer, Tank, Phantom, Healer, Bulwark, Splitter, Troll, Brood
-  Mother, Burrower, Warder, Berserker, Wyvern, Colossus, Bats, Bandit,
-  Bubbler, Sapper, Jammer, Monk, Hydra and Queen. Both sides send from that
+- **34 units, 12 per match.** Every match rolls its own roster: Runner and
+  Grunt, one finisher (Boss, Juggernaut, Warlord or Lich) and nine of
+  Swarm, Drummer, Flyer, Tank, Phantom, Healer, Bulwark, Splitter, Troll,
+  Brood Mother, Burrower, Warder, Berserker, Wyvern, Colossus, Bats, Bandit,
+  Bubbler, Sapper, Jammer, Monk, Hydra, Queen, Imp, Lancer, Tortoise, Decoy
+  and Airship. Both sides send from that
   roster, and the waves are built from it. Armour, regeneration, phasing out
   of reach, tunnelling under the first stretch of track, haste auras, damage
   wards, rage, immunity to slows, a bubble that swallows the first hits, a
-  pop that jams the towers around it, stolen gold, shaken-off poison and
-  units that split twice or lay more as they walk all ask for different
-  towers.
+  pop that jams the towers around it, stolen gold, shaken-off poison, units
+  that split twice or lay more as they walk, a shell no big hit gets
+  through, a decoy every tower shoots first, a charge, a blink down the
+  track and a flyer that drops its cargo all ask for different towers.
 - **20 rounds of waves that are never the same twice.** Each round's wave
   is generated for the match: sometimes a mixed bag, sometimes a themed one
   (Rush, Swarm, Air Raid, Heavy Armour, Iron Wall, Brood Nest, War Band,
@@ -68,22 +79,24 @@ only bundled assets are two open-licensed fonts.
   both lanes, each tougher than the last, and from round 10 on they toughen
   much faster. After the final round comes sudden death, where waves grow
   faster and tougher until one side breaks.
-- **Maps without end.** Ten named maps in nine looks (meadow, dunes, snow,
-  lava, swamp, autumn, crystal cave, candy, night), each also played
-  mirrored, and half of all matches on a freshly generated track (a zigzag,
+- **Maps without end.** Fourteen named maps in eleven looks (meadow, dunes,
+  snow, lava, swamp, autumn, crystal cave, candy, night, sky, ruins), each
+  also played mirrored, and half of all matches on a freshly generated track (a zigzag,
   a serpentine, a hairpin, a wave, a loop, a spiral or a twist on a named
   map) that is checked for fairness before you see it. On some the keep
   stands in the middle of the lane and the track winds in to it.
-- **24 rules**, one rolled per match and sometimes two at once: Rush Hour,
+- **30 rules**, one rolled per match and sometimes two at once: Rush Hour,
   Gold Rush, Glass Cannons, Fortified, Blitz, Iron Lives, Bounty Boom, Thick
   Skin, War Economy, Quick March, Rapid Fire, Marathon, Featherweight, Head
   Start, Heavy Hitters, Mirror Match, Horde, Full Refund, Wild Weather, Open
-  Gates, Knife Edge, Molasses, Long Shot, Lean Times.
+  Gates, Knife Edge, Molasses, Long Shot, Lean Times, Battle Hardened,
+  Second Chance, Sprint, Double Time, Big Spender, Elite Waves.
 - **Random events.** A few times a match something happens to both lanes
   at once: Gold Rain, an Ambush wave, a Second Wind, a Bounty Rush, Payday,
   a Stampede, a Power Surge, Overdrive, Fog, a Cold Snap, a Thunderclap, a
-  Tinker's Gift, Clear Skies, a Blackout or Recruiting.
-- **18 named rivals, 10 play styles.** On top of the difficulty you pick
+  Tinker's Gift, Clear Skies, a Blackout, Recruiting, Iron Hide, Tax Day or
+  a Rally.
+- **24 named rivals, 10 play styles.** On top of the difficulty you pick
   (Easy, Medium, Hard) you draw a rival: a Rusher, Turtle, Balanced, Tycoon,
   Swarmer, Bruiser, Gambler, Trickster, Avalanche or Opportunist, with
   something to say about how the match is going. The AI plays the same game you do: it places towers
@@ -94,8 +107,8 @@ only bundled assets are two open-licensed fonts.
   same engine you are about to.
 - **Matches of about 7 minutes.** 2 to 3 under Blitz, 10 under Marathon.
 - **A stats tab.** Win rate, record per difficulty, lifetime totals, personal
-  bests, your most picked towers and which rivals you have beaten, all kept
-  on the device.
+  bests, cups won, 2 v 2 wins, your most picked towers and which rivals you
+  have beaten, all kept on the device.
 - **Stats backup.** Export your stats to a file and import them again, for
   example on a new phone.
 
@@ -115,6 +128,7 @@ key, so a newer APK installs over the old one and keeps it updated in place.
 
 ## How a match plays
 
+Pick **Duel**, **2 v 2** or **Cup** on the main menu, then a difficulty.
 Each side starts with 130 gold and 100 lives and earns gold every second.
 
 - **Draft.** Tap 4 of the 6 towers you are offered, then **Battle!**. At
@@ -235,12 +249,13 @@ app/src/main/java/com/towerduel/game/
     ├── DemoMatch.kt         The AI-vs-AI match shown on the main menu
     ├── Stats.kt             Lifetime stats and how a finished match adds to them
     ├── StatsFile.kt         The export file: stats to JSON and back
+    ├── Cup.kt               The cup's bracket: who meets whom, who goes through
     ├── Profile.kt           Saves those stats and the settings (SharedPreferences)
     ├── Navigation.kt        Screen routing
     ├── audio/SoundFx.kt     Synthesizes every sound effect at startup
     ├── components/          Buttons, panels, outlined text and the icon set
     ├── render/              Everything drawn on a lane: terrain, sprites, effects
-    ├── screens/             MainMenu (Battle and Stats tabs) > Draft > Battle > Results
+    ├── screens/             MainMenu (Battle and Stats tabs) > Cup bracket > Draft > Battle > Results
     └── theme/               Colours, typography, Material theme
 ```
 
@@ -300,10 +315,11 @@ to the `AiPersonality` enum and a row to the `Style` table at the top of
 ./gradlew :app:testDebugUnitTest
 ```
 
-`BalanceSimulationTest` plays about 680 whole matches headless, AI against
-AI, each on its own random map, roster and draft, in about six minutes. It
-fails if any match does not end, if a harder AI does not beat an easier one
-most of the time, or if a play style can never win. It also prints a table
+`BalanceSimulationTest` plays about 830 whole matches headless, AI against
+AI, each on its own random map, roster and draft, in about seven minutes.
+It fails if any match does not end (duels, 2 v 2s with four AIs, and every
+rule), if a harder AI does not beat an easier one most of the time, or if a
+play style can never win. It also prints a table
 per matchup (wins, match length, how many matches ended before sudden death,
 lives left), which is the tool to use when changing numbers in `GameData.kt`.
 
@@ -312,6 +328,10 @@ passes the same checks a generated map must, the map generator almost never
 gives up, rosters always hold the basics and one finisher, every draft offer
 can hold a lane, waves use only units that are unlocked and stay near their
 health budget, and two rules rolled together never contradict each other.
+
+`CupTest` covers the cup's bracket: eight different entrants, three wins to
+take it, a loss that ends it with the rest played out, and a saved cup that
+reads back the same or is dropped if it makes no sense.
 
 `LifetimeStatsTest` covers how a finished match is added to the stats tab's
 numbers: streaks, the per-difficulty record, totals and bests.

@@ -92,4 +92,22 @@ class LifetimeStatsTest {
         assertEquals(1, stats.towerPicks["mortar"])
         assertNull(stats.towerPicks["gatling"])
     }
+
+    @Test
+    fun cupsAndTeamWinsAreCountedOnTheirOwn() {
+        fun played(outcome: MatchOutcome, team: Boolean = false, entered: Boolean = false, cup: Boolean = false) =
+            MatchRecord(outcome, Difficulty.MEDIUM, listOf("sentry"), 200, 9, 50, 12, 3000, 6, 20, teamMatch = team, cupEntered = entered, cupWon = cup)
+
+        var stats = LifetimeStats()
+        stats += played(MatchOutcome.PLAYER_WIN, team = true)
+        stats += played(MatchOutcome.AI_WIN, team = true)
+        stats += played(MatchOutcome.PLAYER_WIN, entered = true)
+        stats += played(MatchOutcome.PLAYER_WIN)
+        stats += played(MatchOutcome.PLAYER_WIN, cup = true)
+        stats += played(MatchOutcome.AI_WIN, entered = true)
+        assertEquals(1, stats.teamWins)
+        assertEquals(2, stats.cupsEntered)
+        assertEquals(1, stats.cupsWon)
+        assertEquals(4, stats.wins)
+    }
 }

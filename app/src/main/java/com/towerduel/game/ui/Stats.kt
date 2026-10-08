@@ -17,7 +17,13 @@ class MatchRecord(
     val towersBuilt: Int,
     val livesLost: Int,
     /** Who the match was against; empty for a match with no named rival. */
-    val rivalId: String = ""
+    val rivalId: String = "",
+    /** A 2 v 2, played with an ally. */
+    val teamMatch: Boolean = false,
+    /** The first match of a cup the player has just entered. */
+    val cupEntered: Boolean = false,
+    /** The final of a cup, won. */
+    val cupWon: Boolean = false
 )
 
 data class DifficultyRecord(val wins: Int = 0, val losses: Int = 0) {
@@ -45,7 +51,10 @@ data class LifetimeStats(
     /** Tower id to how many matches it was drafted for. */
     val towerPicks: Map<String, Int> = emptyMap(),
     /** Rival id to how many times the player has beaten them. */
-    val rivalWins: Map<String, Int> = emptyMap()
+    val rivalWins: Map<String, Int> = emptyMap(),
+    val teamWins: Int = 0,
+    val cupsEntered: Int = 0,
+    val cupsWon: Int = 0
 ) {
     val matches: Int get() = wins + losses + draws
 
@@ -83,7 +92,10 @@ data class LifetimeStats(
             bestRound = maxOf(bestRound, match.round),
             mostPops = maxOf(mostPops, match.pops),
             towerPicks = picks,
-            rivalWins = beaten
+            rivalWins = beaten,
+            teamWins = teamWins + if (won && match.teamMatch) 1 else 0,
+            cupsEntered = cupsEntered + if (match.cupEntered) 1 else 0,
+            cupsWon = cupsWon + if (match.cupWon) 1 else 0
         )
     }
 }

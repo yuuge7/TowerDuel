@@ -237,6 +237,8 @@ object MapGenerator {
             MapTheme.CRYSTAL -> listOf("Amethyst", "Glimmer", "Quartz", "Prism")
             MapTheme.CANDY -> listOf("Sugar", "Toffee", "Jellybean", "Sherbet")
             MapTheme.NIGHT -> listOf("Midnight", "Starlit", "Owl", "Lantern")
+            MapTheme.SKY -> listOf("Cirrus", "Skylark", "Zephyr", "Sunbeam")
+            MapTheme.RUINS -> listOf("Crumbled", "Forgotten", "Weathered", "Fallen")
         }.random(rng)
         val second = listOf("Trail", "Run", "Crossing", "Gap", "Twist", "Reach", "Hollow", "Way").random(rng)
         return "$first $second"

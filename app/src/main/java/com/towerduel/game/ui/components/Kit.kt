@@ -251,15 +251,22 @@ fun UnitPortrait(type: EnemySendType, modifier: Modifier = Modifier) {
         // wears (crown, healer badge, halo, fuse) or how high it hovers, down to its shadow, and sideways.
         val bubble = type.shieldHits > 0
         val up = when {
+            type.id == "airship" -> 2f
             type.flying -> 2.4f
-            type.healPerSecond > 0f -> 2.1f
+            type.id == "healer" -> 2.1f
             type.cleanseRadius > 0f || type.jamOnDeathMs > 0L || type.id == "sapper" -> 1.8f
-            type.id == "boss" || bubble -> 1.6f
-            type.id == "warlord" || type.id == "queen" -> 1.4f
+            type.id == "boss" || bubble || type.id == "lancer" || type.id == "decoy" -> 1.6f
+            type.id == "warlord" || type.id == "queen" || type.id == "lich" || type.id == "imp" -> 1.5f
             else -> 1.15f
         }
         val down = if (bubble) 1.5f else 1.2f
-        val across = if (type.flying) 4f else if (bubble) 3.1f else if (type.spawnOnDeathId == "hydra_head") 2.9f else 2.4f
+        val across = when {
+            type.id == "airship" -> 2.8f
+            type.flying -> 4f
+            bubble || type.id == "lancer" -> 3.1f
+            type.spawnOnDeathId == "hydra_head" -> 2.9f
+            else -> 2.4f
+        }
         val u = minOf(size.height / ((up + down) * type.radius), size.width / (across * type.radius))
         val cx = size.width / 2f
         val ground = (size.height - (up + down) * type.radius * u) / 2f + up * type.radius * u

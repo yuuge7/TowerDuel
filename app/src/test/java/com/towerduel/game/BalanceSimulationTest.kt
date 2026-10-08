@@ -65,12 +65,51 @@ class BalanceSimulationTest {
         )
     }
 
-    private fun series(label: String, games: Int, a: Difficulty, b: Difficulty, modifier: MatchModifier = GameData.NO_RULE): Int {
+    /** A 2 v 2: two AIs to a lane, each with its own hand and purse. Team A defends the "player" lane. */
+    private fun playTeams(seed: Int, diffA: Difficulty, diffB: Difficulty): Result {
+        val rng = Random(seed)
+        val personalities = AiPersonality.entries
+        fun hand(difficulty: Difficulty) = AiController.pickDraft(GameData.randomDraft(rng = rng), difficulty, rng)
+        fun ai(difficulty: Difficulty) = AiController(personalities[rng.nextInt(personalities.size)], difficulty, rng)
+        val engine = GameEngine(
+            MapGenerator.randomMap(rng), GameData.NO_RULE, hand(diffA), hand(diffB), GameData.randomRoster(rng), seed.toLong(),
+            allyDraft = hand(diffA), aiAllyDraft = hand(diffB)
+        )
+        val a1 = ai(diffA); val a2 = ai(diffA); val b1 = ai(diffB); val b2 = ai(diffB)
+        val allyA = engine.allyField!!
+        val allyB = engine.aiAllyField!!
+
+        val dt = 1f / 30f
+        var steps = 0
+        var sdA = -1
+        var sdB = -1
+        while (engine.outcome == MatchOutcome.ONGOING && steps < 30 * 900) {
+            engine.update(dt)
+            a1.update(dt, engine, engine.playerField, engine.aiField)
+            a2.update(dt, engine, allyA, engine.aiField)
+            b1.update(dt, engine, engine.aiField, engine.playerField)
+            b2.update(dt, engine, allyB, engine.playerField)
+            if (sdA < 0 && engine.suddenDeath) {
+                sdA = engine.playerField.lives
+                sdB = engine.aiField.lives
+            }
+            steps++
+        }
+        val timedOut = engine.playerField.lives > 0 && engine.aiField.lives > 0
+        return Result(
+            engine.outcome, engine.elapsedMs / 1000f, engine.round,
+            engine.playerField.lives, engine.aiField.lives, sdA, sdB, timedOut
+        )
+    }
+
+    private fun series(
+        label: String, games: Int, a: Difficulty, b: Difficulty, modifier: MatchModifier = GameData.NO_RULE, teams: Boolean = false
+    ): Int {
         var winsA = 0; var winsB = 0; var draws = 0
         var seconds = 0f; var rounds = 0
         var early = 0; var timeouts = 0; var sdLivesA = 0; var sdLivesB = 0
         for (seed in 1..games) {
-            val r = play(seed, a, b, modifier = modifier)
+            val r = if (teams) playTeams(seed, a, b) else play(seed, a, b, modifier = modifier)
             assertNotEquals("match $label seed $seed never ended", MatchOutcome.ONGOING, r.outcome)
             when (r.outcome) {
                 MatchOutcome.PLAYER_WIN -> winsA++
@@ -99,12 +138,23 @@ class BalanceSimulationTest {
         series("EASY   vs EASY", 20, Difficulty.EASY, Difficulty.EASY)
         series("MEDIUM vs MEDIUM", 20, Difficulty.MEDIUM, Difficulty.MEDIUM)
         series("HARD   vs HARD", 20, Difficulty.HARD, Difficulty.HARD)
-        val mediumOverEasy = series("MEDIUM vs EASY", 30, Difficulty.MEDIUM, Difficulty.EASY)
-        val hardOverMedium = series("HARD   vs MEDIUM", 30, Difficulty.HARD, Difficulty.MEDIUM)
-        val hardOverEasy = series("HARD   vs EASY", 30, Difficulty.HARD, Difficulty.EASY)
+        val mediumOverEasy = series("MEDIUM vs EASY", 50, Difficulty.MEDIUM, Difficulty.EASY)
+        val hardOverMedium = series("HARD   vs MEDIUM", 50, Difficulty.HARD, Difficulty.MEDIUM)
+        val hardOverEasy = series("HARD   vs EASY", 50, Difficulty.HARD, Difficulty.EASY)
         assertTrue("Medium should beat Easy more often than not", mediumOverEasy > 0)
         assertTrue("Hard should beat Medium more often than not", hardOverMedium > 0)
-        assertTrue("Hard should beat Easy clearly", hardOverEasy >= 10)
+        // A third of the 50 games clear, as it was when this series was 30 games long.
+        assertTrue("Hard should beat Easy clearly", hardOverEasy >= 16)
+    }
+
+    @Test
+    fun teamMatchesEnd_andTheHarderTeamWins() {
+        println("---- 2 v 2 (team A vs team B) ----")
+        series("EASY   2v2", 12, Difficulty.EASY, Difficulty.EASY, teams = true)
+        series("MEDIUM 2v2", 12, Difficulty.MEDIUM, Difficulty.MEDIUM, teams = true)
+        series("HARD   2v2", 12, Difficulty.HARD, Difficulty.HARD, teams = true)
+        val hardOverEasy = series("HARD vs EASY 2v2", 16, Difficulty.HARD, Difficulty.EASY, teams = true)
+        assertTrue("A Hard team should beat an Easy team more often than not", hardOverEasy > 0)
     }
 
     @Test

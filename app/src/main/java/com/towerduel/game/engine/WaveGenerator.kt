@@ -44,7 +44,8 @@ object WaveGenerator {
         if (type.armor > 0f) t *= 1.3f
         if (type.phaseMs > 0L) t *= 1.3f
         if (type.regenPerSecond > 0f) t *= 1.2f
-        if (type.shieldHits > 0) t *= 1.3f
+        if (type.shieldHits > 0 || type.maxHitPct > 0f || type.taunts) t *= 1.3f
+        if (type.blinkEveryMs > 0L || type.chargeSpeedPct > 0f) t *= 1.2f
         if (type.jamOnDeathMs > 0L) t *= 1.2f
         if (type.cleanseRadius > 0f || type.stealsIncomeSec > 0f) t *= 1.15f
         // Small, quick and costly to let through: a wave of them is a wave of far fewer.
@@ -65,7 +66,7 @@ object WaveGenerator {
         val escorts = regulars.filter {
             it.healPerSecond > 0f || it.hasteAuraPct > 0f || it.wardAuraPct > 0f || it.cleanseRadius > 0f
         }
-        val plated = regulars.filter { it.armor > 0f || it.shieldHits > 0 }
+        val plated = regulars.filter { it.armor > 0f || it.shieldHits > 0 || it.maxHitPct > 0f }
         val breeders = regulars.filter { it.spawnOnDeathId != null || it.spawnEveryId != null }
         val filler = regulars.firstOrNull { it.id == "grunt" } ?: regulars.first()
 

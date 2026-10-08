@@ -52,6 +52,16 @@ object GameData {
     const val ROSTER_SIZE = 12
     const val SECOND_RULE_CHANCE = 0.3f
 
+    /** A unit type with at least this much listed health counts as big: what a Giant Slayer hunts. */
+    const val BIG_UNIT_HP = 200f
+
+    /**
+     * In a 2 v 2 two purses defend each lane, so every wave and send is made tougher to match:
+     * units have this much more health, and a wave this many more of them.
+     */
+    const val TEAM_WAVE_HP = 1.6f
+    const val TEAM_WAVE_SIZE = 1.25f
+
     /** Chance that a match is played on a freshly generated map instead of a named one. */
     const val WILD_MAP_CHANCE = 0.5f
 
@@ -429,8 +439,8 @@ object GameData {
         ),
         TroopType(
             id = "lookout", name = "Lookout", color = Color(0xFF7FD1B9),
-            cost = 75, role = "Support", shot = ShotKind.NONE,
-            isAttacker = false, auraRangeBonusPct = 15f, auraRange = 15f,
+            cost = 60, role = "Support", shot = ShotKind.NONE,
+            isAttacker = false, auraRangeBonusPct = 20f, auraRange = 16f,
             upgrades = listOf(
                 UpgradeTier("Spyglass", "Bigger boost, wider view", 80, effectMult = 1.4f, rangeMult = 1.15f),
                 UpgradeTier("Signal Fires", "Bigger boost again", 140, effectMult = 1.35f),
@@ -477,6 +487,85 @@ object GameData {
                 UpgradeTier("Doomsday Fuse", "+70% damage, fires faster", 420, damageMult = 1.7f, reloadMult = 0.85f)
             ),
             description = "Whatever it kills blows up and hurts the units around it. One pop can set off a whole pack."
+        ),
+        TroopType(
+            id = "railgun", name = "Railgun", color = Color(0xFF00C2A8),
+            cost = 110, role = "Pierces a line", shot = ShotKind.RAIL,
+            damage = 34f, range = 30f, fireRateMs = 2000,
+            targeting = TargetPriority.FIRST, pierce = 4,
+            upgrades = listOf(
+                UpgradeTier("Capacitors", "+50% damage", 115, damageMult = 1.5f),
+                UpgradeTier("Long Rails", "Longer reach, two more pierced", 190, rangeMult = 1.2f, extraChains = 2),
+                UpgradeTier("Overcharge", "Double damage", 310, damageMult = 2f),
+                UpgradeTier("Annihilator", "+70% damage, reloads faster", 470, damageMult = 1.7f, reloadMult = 0.8f)
+            ),
+            description = "One shot goes straight through its target and on down the line behind it."
+        ),
+        TroopType(
+            id = "icebreaker", name = "Icebreaker", color = Color(0xFF5AA9E6),
+            cost = 85, role = "Punishes the slowed", shot = ShotKind.DART,
+            damage = 16f, range = 22f, fireRateMs = 800,
+            targeting = TargetPriority.FIRST, bonusVsControlledPct = 120f,
+            upgrades = listOf(
+                UpgradeTier("Ice Picks", "+50% damage", 90, damageMult = 1.5f),
+                UpgradeTier("Cold Read", "Hits the helpless far harder", 150, effectMult = 1.4f),
+                UpgradeTier("Glacier Cutter", "Double damage, longer reach", 250, damageMult = 2f, rangeMult = 1.15f),
+                UpgradeTier("Permafrost", "+70% damage, fires faster", 390, damageMult = 1.7f, reloadMult = 0.85f)
+            ),
+            description = "An honest gun on its own. Against anything slowed or stunned it hits more than twice as hard."
+        ),
+        TroopType(
+            id = "slayer", name = "Giant Slayer", color = Color(0xFFCD7F32),
+            cost = 105, role = "Hunts giants", shot = ShotKind.DART,
+            damage = 30f, range = 26f, fireRateMs = 1400,
+            targeting = TargetPriority.STRONGEST, bonusVsBigPct = 150f,
+            upgrades = listOf(
+                UpgradeTier("Sharpened", "+50% damage", 110, damageMult = 1.5f),
+                UpgradeTier("Giant's Bane", "Far more against the big ones", 180, effectMult = 1.4f),
+                UpgradeTier("Titan Feller", "Double damage", 290, damageMult = 2f),
+                UpgradeTier("Colossus Killer", "+70% damage, reloads faster", 440, damageMult = 1.7f, reloadMult = 0.85f)
+            ),
+            description = "Goes for the toughest unit, and does two and a half times the damage to Tanks, bosses and their like."
+        ),
+        TroopType(
+            id = "bolas", name = "Bolas", color = Color(0xFFC9B037),
+            cost = 80, role = "Roots one", shot = ShotKind.NET,
+            damage = 14f, range = 24f, fireRateMs = 2600,
+            targeting = TargetPriority.STRONGEST, stunChance = 0.9f, stunDurationMs = 2400,
+            upgrades = listOf(
+                UpgradeTier("Quick Hands", "Throws much faster", 85, reloadMult = 0.7f),
+                UpgradeTier("Twin Bolas", "Two targets at once", 150, extraShots = 1),
+                UpgradeTier("Iron Bolas", "Hits hard, throws faster", 240, damageMult = 4f, reloadMult = 0.8f),
+                UpgradeTier("Ensnare", "A third target, faster still", 370, extraShots = 1, reloadMult = 0.85f)
+            ),
+            description = "Trips up the toughest unit in reach and holds it there for well over two seconds."
+        ),
+        TroopType(
+            id = "scatter", name = "Scattergun", color = Color(0xFF7A8BA6),
+            cost = 75, role = "Close blast", shot = ShotKind.BULLET,
+            damage = 8f, range = 15f, fireRateMs = 1000,
+            targeting = TargetPriority.CLOSEST, shots = 5,
+            upgrades = listOf(
+                UpgradeTier("Heavy Shot", "+50% damage", 80, damageMult = 1.5f),
+                UpgradeTier("Wide Choke", "Two more pellets, longer reach", 140, extraShots = 2, rangeMult = 1.15f),
+                UpgradeTier("Pump Action", "Fires much faster", 230, reloadMult = 0.65f),
+                UpgradeTier("Dragon Shells", "Double damage, three more pellets", 360, damageMult = 2f, extraShots = 3)
+            ),
+            description = "Five pellets a blast, spread over whatever is close. Useless at a distance, brutal on a corner."
+        ),
+        TroopType(
+            id = "blight", name = "Blighter", color = Color(0xFF7D9D3C),
+            cost = 90, role = "Spreading rot", shot = ShotKind.ORB,
+            damage = 5f, range = 22f, fireRateMs = 1100,
+            targeting = TargetPriority.FIRST,
+            dotDamagePerSecond = 12f, dotDurationMs = 4000, dotSpreadRadius = 8f,
+            upgrades = listOf(
+                UpgradeTier("Virulent", "+60% rot", 95, effectMult = 1.6f),
+                UpgradeTier("Rapid Spit", "Spits much faster", 160, reloadMult = 0.65f),
+                UpgradeTier("Pestilence", "Double rot, and it jumps further", 260, effectMult = 2f, splashMult = 1.4f),
+                UpgradeTier("End Times", "+80% rot, spits faster", 400, effectMult = 1.8f, reloadMult = 0.85f)
+            ),
+            description = "Its rot eats one unit at a time. When the carrier dies, the rot jumps to everything around it."
         )
     )
 
@@ -675,6 +764,49 @@ object GameData {
             description = "Lays a Swarm unit every few seconds for as long as she walks."
         ),
         EnemySendType(
+            id = "lich", name = "Lich", color = Color(0xFFA7C4A0),
+            cost = 230, maxHp = 700f, speed = 4.3f, livesDamage = 16, bountyGold = 42, radius = 4f,
+            healPerSecond = 18f, healRadius = 14f,
+            incomeBonus = 0f, unlockRound = 9, cooldownMs = 6000,
+            description = "A boss that mends itself and everything walking near it."
+        ),
+        EnemySendType(
+            id = "imp", name = "Imp", color = Color(0xFFFF6B4A),
+            cost = 60, maxHp = 40f, speed = 9f, livesDamage = 2, bountyGold = 7, radius = 1.8f,
+            blinkEveryMs = 3500, blinkDist = 9f,
+            incomeBonus = 0.45f, unlockRound = 4, cooldownMs = 800,
+            description = "Blinks a short way down the track every few seconds."
+        ),
+        EnemySendType(
+            id = "lancer", name = "Lancer", color = Color(0xFF4A6FE3),
+            cost = 70, maxHp = 80f, speed = 7f, livesDamage = 3, bountyGold = 9, radius = 2.2f,
+            chargeSpeedPct = 110f,
+            incomeBonus = 0.50f, unlockRound = 5, cooldownMs = 1000,
+            description = "Charges at more than double speed until the first hit lands on it."
+        ),
+        EnemySendType(
+            id = "tortoise", name = "Tortoise", color = Color(0xFF5F8A6A),
+            cost = 85, maxHp = 130f, speed = 6f, livesDamage = 3, bountyGold = 10, radius = 2.6f,
+            maxHitPct = 15f,
+            incomeBonus = 0.55f, unlockRound = 5, cooldownMs = 1100,
+            description = "No single hit takes more than a seventh of its health. Many small hits beat a few big ones."
+        ),
+        EnemySendType(
+            id = "decoy", name = "Decoy", color = Color(0xFFC9A66B),
+            cost = 70, maxHp = 170f, speed = 7f, livesDamage = 1, bountyGold = 5, radius = 2.5f,
+            taunts = true,
+            incomeBonus = 0.45f, unlockRound = 6, cooldownMs = 1200,
+            description = "Every tower that can reach it shoots it first. It costs 1 life; what walks behind it costs more."
+        ),
+        EnemySendType(
+            id = "airship", name = "Airship", color = Color(0xFFDB8A5A),
+            cost = 120, maxHp = 160f, speed = 6.5f, livesDamage = 5, bountyGold = 12, radius = 3f,
+            flying = true, damageResistancePct = 30f,
+            spawnOnDeathId = "grunt", spawnOnDeathCount = 3,
+            incomeBonus = 0.55f, unlockRound = 7, cooldownMs = 1500,
+            description = "A flyer that drops three Grunts where it is shot down."
+        ),
+        EnemySendType(
             id = "splitling", name = "Splitling", color = Color(0xFFD29BF5),
             cost = 0, maxHp = 22f, speed = 13f, livesDamage = 1, bountyGold = 2, radius = 1.4f,
             sendable = false,
@@ -700,7 +832,7 @@ object GameData {
 
     // Every roster has the two basic units and one finisher; the rest is drawn from the pool.
     private val ROSTER_CORE = listOf("runner", "grunt")
-    val ROSTER_FINISHERS = listOf("boss", "juggernaut", "warlord")
+    val ROSTER_FINISHERS = listOf("boss", "juggernaut", "warlord", "lich")
     private val ROSTER_POOL: List<EnemySendType> = ENEMY_SENDS.filter {
         it.sendable && it.id !in ROSTER_CORE && it.id !in ROSTER_FINISHERS
     }
@@ -793,6 +925,34 @@ object GameData {
             pathPoints = listOf(
                 -8f to 42f, 20f to 42f, 44f to 42f, 58f to 40f, 67f to 31f, 66f to 18f, 56f to 10f, 44f to 11f,
                 37f to 20f, 39f to 33f, 46f to 44f, 56f to 52f, 72f to 52f, 84f to 48f, 91f to 40f
+            )
+        ),
+        MapDef(
+            id = "battlements", name = "Old Battlements", theme = MapTheme.RUINS,
+            pathPoints = listOf(
+                -8f to 48f, 10f to 48f, 16f to 43f, 16f to 17f, 22f to 11f, 32f to 11f, 38f to 17f, 38f to 43f,
+                44f to 50f, 54f to 50f, 60f to 43f, 60f to 17f, 66f to 11f, 76f to 11f, 82f to 17f, 83f to 34f, 91f to 44f
+            )
+        ),
+        MapDef(
+            id = "halo", name = "Cloud Halo", theme = MapTheme.SKY,
+            pathPoints = listOf(
+                -8f to 31f, 14f to 31f, 32f to 19f, 50f to 9f, 68f to 19f, 86f to 31f, 68f to 43f,
+                50f to 53f, 38f to 46f, 30f to 37f
+            )
+        ),
+        MapDef(
+            id = "crossing", name = "Mire Crossing", theme = MapTheme.SWAMP,
+            pathPoints = listOf(
+                -8f to 31f, 20f to 31f, 50f to 31f, 68f to 29f, 76f to 20f, 66f to 11f, 46f to 10f, 32f to 14f,
+                28f to 24f, 28f to 38f, 34f to 49f, 50f to 52f, 72f to 52f, 91f to 48f
+            )
+        ),
+        MapDef(
+            id = "summit", name = "Twin Summits", theme = MapTheme.SKY,
+            pathPoints = listOf(
+                -8f to 50f, 12f to 50f, 22f to 36f, 28f to 14f, 36f to 10f, 44f to 16f, 48f to 34f,
+                52f to 48f, 60f to 50f, 66f to 34f, 70f to 14f, 78f to 10f, 86f to 18f, 91f to 34f
             )
         )
     )
@@ -904,6 +1064,34 @@ object GameData {
             id = "lean_times", name = "Lean Times",
             description = "Income is cut 25%, but popped units pay 60% more.",
             incomeMultiplier = 0.75f, bountyMultiplier = 1.6f
+        ),
+        MatchModifier(
+            id = "battle_hardened", name = "Battle Hardened",
+            description = "Every tower is built with its first upgrade already on it.", freeTowerLevels = 1
+        ),
+        MatchModifier(
+            id = "second_chance", name = "Second Chance",
+            description = "The first time a keep falls, it stands back up with 25 lives.", revives = 1
+        ),
+        MatchModifier(
+            id = "sprint", name = "Sprint",
+            description = "A 5-minute match, and both sides start with 60 extra gold.",
+            matchDurationOverrideSec = 300, startingGoldBonus = 60
+        ),
+        MatchModifier(
+            id = "double_time", name = "Double Time",
+            description = "Units move 15% faster and towers fire 15% faster.",
+            speedMultiplier = 1.15f, reloadMultiplier = 0.87f
+        ),
+        MatchModifier(
+            id = "big_spender", name = "Big Spender",
+            description = "Both sides start with 300 extra gold, but income is cut 20%.",
+            startingGoldBonus = 300, incomeMultiplier = 0.8f
+        ),
+        MatchModifier(
+            id = "elite_waves", name = "Elite Waves",
+            description = "Waves are a third smaller, but every unit has 40% more health.",
+            waveSizeMultiplier = 0.67f, unitHpMultiplier = 1.4f
         )
     )
 
@@ -1100,6 +1288,66 @@ object GameData {
                 hurt = listOf("Too early!", "That one was a dud."),
                 gloat = listOf("Kaboom.", "Did you hear that?"),
                 win = "What a blast.", lose = "Fizzled out."
+            )
+        ),
+        Rival(
+            "granny", "Granny Shell", AiPersonality.TURTLE, "tortoise",
+            RivalLines(
+                start = listOf("No rush, dear.", "I have all day. Do you?"),
+                push = listOf("Off you go, slowly now.", "Mind the shells."),
+                hurt = listOf("Oh, that tickled.", "Careful, I bruise."),
+                gloat = listOf("Slow gets there too.", "Told you there was no rush."),
+                win = "Home in time for tea.", lose = "Well. I never."
+            )
+        ),
+        Rival(
+            "pip", "Pip The Imp", AiPersonality.SWARMER, "imp",
+            RivalLines(
+                start = listOf("Now you see me!", "Catch me, catch me."),
+                push = listOf("Here! No, here!", "Blink and we are past."),
+                hurt = listOf("Missed! Mostly.", "Ow, ow, ow."),
+                gloat = listOf("Too slow!", "Were you aiming at something?"),
+                win = "Hee hee hee.", lose = "No fair, you were looking."
+            )
+        ),
+        Rival(
+            "zeppo", "Admiral Zeppo", AiPersonality.BRUISER, "airship",
+            RivalLines(
+                start = listOf("All hands aloft.", "The fleet is airborne."),
+                push = listOf("Drop the cargo!", "Full ballast ahead."),
+                hurt = listOf("We are losing gas.", "Patch that envelope!"),
+                gloat = listOf("Delivered, on schedule.", "Look out below."),
+                win = "A smooth landing.", lose = "Abandon ship."
+            )
+        ),
+        Rival(
+            "gallop", "Sir Gallop", AiPersonality.RUSHER, "lancer",
+            RivalLines(
+                start = listOf("Lances down!", "A charge settles everything."),
+                push = listOf("Chaaarge!", "Do not stop for anything."),
+                hurt = listOf("A scratch on the plate.", "Unhorsed, briefly."),
+                gloat = listOf("Straight through.", "You never touched us."),
+                win = "For glory!", lose = "The horse was tired."
+            )
+        ),
+        Rival(
+            "sam", "Strawman Sam", AiPersonality.TRICKSTER, "decoy",
+            RivalLines(
+                start = listOf("Shoot me. Go on.", "I am very distracting."),
+                push = listOf("Look at me, not at them.", "Eyes on the hat."),
+                hurt = listOf("Just straw.", "That was meant to happen."),
+                gloat = listOf("You shot the wrong one.", "Fell for it."),
+                win = "Stuffed you.", lose = "I have been seen through."
+            )
+        ),
+        Rival(
+            "pale", "The Pale King", AiPersonality.BALANCED, "lich",
+            RivalLines(
+                start = listOf("Nothing of mine stays dead.", "I have waited longer than this."),
+                push = listOf("Rise. Walk.", "Mend, and march on."),
+                hurt = listOf("It will knit.", "A wound is a small thing."),
+                gloat = listOf("We outlast you.", "Your towers tire. We do not."),
+                win = "As it was written.", lose = "I can wait for the next one."
             )
         )
     )

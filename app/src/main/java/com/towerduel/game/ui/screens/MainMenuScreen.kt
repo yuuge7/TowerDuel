@@ -47,7 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.GameData
+import com.towerduel.game.data.GameMode
 import com.towerduel.game.data.LaneSpace
+import com.towerduel.game.ui.Cup
 import com.towerduel.game.ui.DemoMatch
 import com.towerduel.game.ui.GameViewModel
 import com.towerduel.game.ui.components.ChunkyButton
@@ -165,24 +167,44 @@ private fun BattleTab(viewModel: GameViewModel, onStart: (Difficulty) -> Unit, o
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // What to play, then how hard.
+            val mode = viewModel.selectedMode
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (entry in GameMode.entries) {
+                    ChunkyTextButton(
+                        entry.label.uppercase(),
+                        onClick = { viewModel.selectMode(entry) },
+                        modifier = Modifier.weight(1f).height(46.dp).semantics { this.selected = entry == mode },
+                        color = if (entry == mode) Sun else PanelLight,
+                        fontSize = 17.sp
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (difficulty in Difficulty.entries) {
                     ChunkyTextButton(
                         difficulty.label.uppercase(),
                         onClick = { selected = difficulty },
-                        modifier = Modifier.weight(1f).height(50.dp),
+                        modifier = Modifier.weight(1f).height(46.dp),
                         color = if (difficulty == selected) Sky else PanelLight,
                         fontSize = 17.sp
                     )
                 }
             }
             Spacer(Modifier.height(6.dp))
-            Text(selected.blurb, color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+            // A cup already under way is played out at the difficulty it was entered at.
+            val cup = viewModel.profile.cup?.takeIf { mode == GameMode.CUP && !it.isOver }
+            Text(
+                if (cup != null) "Your cup is waiting: the ${Cup.roundName(cup.round).lowercase()}, on ${cup.difficulty.label}."
+                else "${mode.blurb} ${selected.blurb}",
+                color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center
+            )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             ChunkyTextButton(
-                "PLAY", onClick = { onStart(selected) },
-                modifier = Modifier.fillMaxWidth().height(76.dp), color = Leaf, fontSize = 38.sp
+                if (cup != null) "CONTINUE CUP" else "PLAY", onClick = { onStart(selected) },
+                modifier = Modifier.fillMaxWidth().height(72.dp), color = Leaf, fontSize = if (cup != null) 28.sp else 38.sp
             )
             Spacer(Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -54,6 +54,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.towerduel.game.data.EnemySendType
 import com.towerduel.game.data.GameData
+import com.towerduel.game.data.GameMode
 import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.data.MatchEventType
 import com.towerduel.game.data.TroopType
@@ -152,7 +153,10 @@ fun BattleScreen(
 
             LaneSlot(Modifier.weight(1f)) {
                 LaneView(eng, eng.aiField, AiColor, viewModel::observeFrame)
-                LaneOverlay(viewModel, eng, eng.aiField, viewModel.rival.name.uppercase(), AiColor, isPlayer = false)
+                LaneOverlay(
+                    viewModel, eng, eng.aiField,
+                    if (eng.isTeamMatch) "RIVALS" else viewModel.rival.name.uppercase(), AiColor, isPlayer = false
+                )
             }
             Spacer(Modifier.height(6.dp))
             LaneSlot(Modifier.weight(1f)) {
@@ -162,7 +166,7 @@ fun BattleScreen(
                     ghost = viewModel.ghost,
                     gestures = gestures
                 )
-                LaneOverlay(viewModel, eng, eng.playerField, "YOU", PlayerColor, isPlayer = true)
+                LaneOverlay(viewModel, eng, eng.playerField, if (eng.isTeamMatch) "YOUR TEAM" else "YOU", PlayerColor, isPlayer = true)
             }
             Spacer(Modifier.height(6.dp))
 
@@ -290,6 +294,11 @@ private fun BoxScope.LaneOverlay(
             HudPill(GameIconKind.HEART, "${field.lives}", fontSize = 15.sp, textColor = if (field.lives <= eng.startingLives / 4) Tomato else Cream)
             // The rival's purse is public: a fat one means a push is coming.
             if (!isPlayer) HudPill(GameIconKind.COIN, "${field.gold.toInt()}", fontSize = 15.sp)
+            // In a 2 v 2 so is the other seat's on each lane: the second rival's, and your ally's (in green).
+            val partner = field.partner
+            if (partner != null) {
+                HudPill(GameIconKind.COIN, "${partner.gold.toInt()}", fontSize = 15.sp, textColor = if (isPlayer) Leaf else Cream)
+            }
         }
 
         if (isPlayer) {
@@ -432,7 +441,9 @@ private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
             StatusRow(viewModel, eng, selected)
 
             Box(modifier = Modifier.fillMaxWidth().height(74.dp)) {
-                if (selected != null) {
+                if (selected != null && selected.owner !== field) {
+                    AllyTowerInfo(viewModel, selected)
+                } else if (selected != null) {
                     TowerControls(viewModel, eng, selected, gold)
                 } else {
                     Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -553,6 +564,26 @@ private fun BuildCard(troop: TroopType, affordable: Boolean, armed: Boolean, onC
                 )
             }
         }
+    }
+}
+
+/** An ally's tower can be looked at, not run: whoever built it upgrades and sells it. */
+@Composable
+private fun AllyTowerInfo(viewModel: GameViewModel, tower: TowerInstance) {
+    Row(
+        modifier = Modifier.fillMaxSize(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TowerPortrait(tower.type, Modifier.size(54.dp), level = tower.level)
+        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+            OutlinedText("YOUR ALLY'S TOWER", fontSize = 16.sp, color = Leaf)
+            Text(
+                "${viewModel.ally?.name ?: "Your ally"} built it, and upgrades it.", color = Lilac,
+                style = MaterialTheme.typography.bodyMedium, fontSize = 12.sp, maxLines = 1
+            )
+        }
+        SquareButton(GameIconKind.CLOSE, "Close tower controls", onClick = viewModel::deselect, size = 38.dp)
     }
 }
 
@@ -718,6 +749,13 @@ private fun PauseOverlay(viewModel: GameViewModel, eng: GameEngine, onQuit: () -
                     "${eng.modifier.name}: ${eng.modifier.description}",
                     color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center
                 )
+                if (viewModel.matchMode == GameMode.CUP) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Quitting forfeits this cup match.",
+                        color = Tomato, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center
+                    )
+                }
                 Spacer(Modifier.height(18.dp))
                 ChunkyTextButton("RESUME", viewModel::resume, Modifier.fillMaxWidth().height(58.dp), color = Leaf)
                 Spacer(Modifier.height(10.dp))

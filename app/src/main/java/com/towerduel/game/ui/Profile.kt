@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.towerduel.game.data.Difficulty
 import com.towerduel.game.data.GameData
+import com.towerduel.game.data.GameMode
 import com.towerduel.game.engine.MatchOutcome
 
 /** The player's lifetime stats and settings, kept in SharedPreferences and mirrored as Compose state. */
@@ -22,6 +23,13 @@ class ProfileStore(context: Context) {
     )
         private set
 
+    var lastMode by mutableStateOf(GameMode.entries.getOrElse(prefs.getInt(KEY_MODE, 0)) { GameMode.DUEL })
+        private set
+
+    /** The cup the player is in the middle of, if any. It survives the app being closed. */
+    var cup by mutableStateOf(Cup.decode(prefs.getString(KEY_CUP, null)))
+        private set
+
     /** True until the player has opened the how-to-play sheet or finished a match. */
     var isNewPlayer by mutableStateOf(prefs.getBoolean(KEY_NEW, true))
         private set
@@ -34,6 +42,17 @@ class ProfileStore(context: Context) {
     fun rememberDifficulty(difficulty: Difficulty) {
         lastDifficulty = difficulty
         prefs.edit().putInt(KEY_DIFFICULTY, difficulty.ordinal).apply()
+    }
+
+    fun rememberMode(mode: GameMode) {
+        lastMode = mode
+        prefs.edit().putInt(KEY_MODE, mode.ordinal).apply()
+    }
+
+    /** Keeps [next] as the cup in progress; null forgets it. */
+    fun saveCup(next: Cup?) {
+        cup = next
+        prefs.edit().also { if (next == null) it.remove(KEY_CUP) else it.putString(KEY_CUP, next.encode()) }.apply()
     }
 
     fun markNotNew() {
@@ -93,7 +112,10 @@ class ProfileStore(context: Context) {
         mostPops = prefs.getInt(KEY_MOST_POPS, 0),
         // Only towers that still exist: a pick count for a removed tower has nothing to show.
         towerPicks = GameData.TROOPS.associate { it.id to prefs.getInt(KEY_PICK + it.id, 0) }.filterValues { it > 0 },
-        rivalWins = GameData.RIVALS.associate { it.id to prefs.getInt(KEY_RIVAL + it.id, 0) }.filterValues { it > 0 }
+        rivalWins = GameData.RIVALS.associate { it.id to prefs.getInt(KEY_RIVAL + it.id, 0) }.filterValues { it > 0 },
+        teamWins = prefs.getInt(KEY_TEAM_WINS, 0),
+        cupsEntered = prefs.getInt(KEY_CUPS_ENTERED, 0),
+        cupsWon = prefs.getInt(KEY_CUPS_WON, 0)
     )
 
     private fun save(editor: SharedPreferences.Editor, s: LifetimeStats) {
@@ -112,6 +134,9 @@ class ProfileStore(context: Context) {
             .putInt(KEY_FASTEST_WIN, s.fastestWinSeconds)
             .putInt(KEY_BEST_ROUND, s.bestRound)
             .putInt(KEY_MOST_POPS, s.mostPops)
+            .putInt(KEY_TEAM_WINS, s.teamWins)
+            .putInt(KEY_CUPS_ENTERED, s.cupsEntered)
+            .putInt(KEY_CUPS_WON, s.cupsWon)
         for ((difficulty, record) in s.byDifficulty) {
             editor.putInt(KEY_WINS + "_" + difficulty.name, record.wins)
             editor.putInt(KEY_LOSSES + "_" + difficulty.name, record.losses)
@@ -138,7 +163,12 @@ class ProfileStore(context: Context) {
         const val KEY_MOST_POPS = "most_pops"
         const val KEY_PICK = "pick_"
         const val KEY_RIVAL = "rival_"
+        const val KEY_TEAM_WINS = "team_wins"
+        const val KEY_CUPS_ENTERED = "cups_entered"
+        const val KEY_CUPS_WON = "cups_won"
         const val KEY_DIFFICULTY = "difficulty"
+        const val KEY_MODE = "mode"
+        const val KEY_CUP = "cup"
         const val KEY_NEW = "new_player"
     }
 }
