@@ -14,22 +14,23 @@ enum class TargetPriority(val label: String) {
 
 /** How a tower's attack travels. The engine reads it for timing and impact, the renderer for the sprite. */
 enum class ShotKind {
-    DART, BULLET, SHELL, MORTAR, NET, ORB, // projectiles that chase the target
+    DART, BULLET, SHELL, MORTAR, NET, ORB, ROCKET, // projectiles that chase the target
     GLAIVE,                                // a projectile that flies straight and cuts through a line of units
     BOLT, RAIL, BEAM, FLAME,               // instant hits
-    FROST_PULSE, POISON_PULSE, GUST_PULSE, QUAKE_PULSE, // hits everything in range at once
+    FROST_PULSE, POISON_PULSE, GUST_PULSE, QUAKE_PULSE, NOVA_PULSE, // hits everything in range at once
     NONE;
 
     /** Pulse towers have no single target, so they have no targeting priority either. */
     val isPulse: Boolean
-        get() = this == FROST_PULSE || this == POISON_PULSE || this == GUST_PULSE || this == QUAKE_PULSE
+        get() = this == FROST_PULSE || this == POISON_PULSE || this == GUST_PULSE || this == QUAKE_PULSE ||
+            this == NOVA_PULSE
 }
 
 /**
  * One step of a tower's upgrade track. Multipliers stack on top of every earlier tier.
  * [effectMult] scales whatever the tower's special is: slow, stun or crit chance, poison,
- * income, either aura, lives restored, knockback, weakening, execute threshold, bounty bonus,
- * or how far a beam ramps.
+ * income, any aura, lives restored, knockback, weakening, execute threshold, bounty bonus,
+ * how far a beam ramps, what a kill teaches a Veteran, or how hard a Detonator's kills blow up.
  * [extraChains] adds chain jumps, or cuts for a tower that pierces.
  */
 data class UpgradeTier(
@@ -46,7 +47,7 @@ data class UpgradeTier(
 )
 
 /**
- * A defensive tower type. Each side is dealt a hand from GameData.TROOPS and keeps 3 for the match.
+ * A defensive tower type. Each side is dealt a hand from GameData.TROOPS and keeps some of it for the match.
  */
 data class TroopType(
     val id: String,
@@ -61,6 +62,8 @@ data class TroopType(
     val range: Float = 0f,
     val fireRateMs: Long = 1000L,
     val targeting: TargetPriority = TargetPriority.FIRST,
+    /** Projectiles per volley before upgrades, each at a different unit while there are enough. */
+    val shots: Int = 1,
     val splashRadius: Float = 0f,
     val chainTargets: Int = 0,
     val slowFactor: Float = 0f,
@@ -73,6 +76,8 @@ data class TroopType(
     val auraDamageBonusPct: Float = 0f,
     /** Towers within [auraRange] fire this much faster. */
     val auraReloadBonusPct: Float = 0f,
+    /** Towers within [auraRange] reach this much further. */
+    val auraRangeBonusPct: Float = 0f,
     val auraRange: Float = 0f,
     /** Lives this tower gives back to its keep, never above what the match started with. */
     val livesPerMinute: Float = 0f,
@@ -93,12 +98,20 @@ data class TroopType(
     val executeBelowPct: Float = 0f,
     /** Extra bounty on this tower's kills. */
     val bountyBonusPct: Float = 0f,
+    /** A hit unit loses its armour and its damage resistance for the rest of its walk. */
+    val sundersArmor: Boolean = false,
+    /** Damage gained with every kill, up to [killGrowthMaxPct] in all. */
+    val killGrowthPct: Float = 0f,
+    val killGrowthMaxPct: Float = 0f,
+    /** A unit this tower kills blows up: this share of its full health to everything within [deathBlastRadius]. */
+    val deathBlastPct: Float = 0f,
+    val deathBlastRadius: Float = 0f,
     val description: String
 ) {
     val maxLevel: Int get() = upgrades.size
 
-    /** Single-target damage per second before upgrades. */
-    val baseDps: Float get() = if (isAttacker && fireRateMs > 0L) damage * 1000f / fireRateMs else 0f
+    /** Damage per second before upgrades, every barrel on its own target. */
+    val baseDps: Float get() = if (isAttacker && fireRateMs > 0L) damage * shots * 1000f / fireRateMs else 0f
 }
 
 /** A unit that walks a lane. A match's roster decides which ones both sides can send and its waves use. */
@@ -136,6 +149,18 @@ data class EnemySendType(
     val wardRadius: Float = 0f,
     /** Moves this much faster by the time it is nearly dead, in proportion to health lost. */
     val enrageSpeedPct: Float = 0f,
+    /** Hits its bubble swallows whole, however hard, before anything gets through. */
+    val shieldHits: Int = 0,
+    /** If it reaches the keep it also carries off this many seconds of the defender's income, for the other side. */
+    val stealsIncomeSec: Float = 0f,
+    /** When popped, towers within [jamRadius] stop firing for this long. */
+    val jamOnDeathMs: Long = 0L,
+    val jamRadius: Float = 0f,
+    /** Other units within this distance of it shake off slows, poison and curses. */
+    val cleanseRadius: Float = 0f,
+    /** Lays a [spawnEveryId] unit this often as it walks. */
+    val spawnEveryMs: Long = 0L,
+    val spawnEveryId: String? = null,
     /** Sending this raises the sender's income by this much gold per second for the rest of the match. */
     val incomeBonus: Float = 0f,
     val unlockRound: Int = 1,
@@ -146,7 +171,7 @@ data class EnemySendType(
     val description: String
 )
 
-enum class MapTheme { MEADOW, DUNES, FROST, EMBER, SWAMP, AUTUMN }
+enum class MapTheme { MEADOW, DUNES, FROST, EMBER, SWAMP, AUTUMN, CRYSTAL, CANDY, NIGHT }
 
 /** [pathPoints] are control points; the lane path is a smooth curve through them (see LanePath). */
 data class MapDef(
@@ -172,6 +197,14 @@ data class MatchModifier(
     val matchDurationOverrideSec: Int? = null,
     val roundIntervalSec: Int? = null,
     val startingGoldBonus: Int = 0,
+    /** How much bigger than usual every wave is. */
+    val waveSizeMultiplier: Float = 1f,
+    /** How long a send takes to be ready again, against its listed cooldown. */
+    val sendCooldownMultiplier: Float = 1f,
+    /** How long the gaps between random events are, against the usual. */
+    val eventGapMultiplier: Float = 1f,
+    /** Share of what a tower cost that selling it gives back, if not the usual. */
+    val sellRefundFraction: Float? = null,
     /** The rival is offered the same towers as the player. */
     val mirrorDraft: Boolean = false
 ) {
@@ -180,7 +213,8 @@ data class MatchModifier(
         id != other.id &&
             (livesOverride == null || other.livesOverride == null) &&
             (matchDurationOverrideSec == null || other.matchDurationOverrideSec == null) &&
-            (roundIntervalSec == null || other.roundIntervalSec == null)
+            (roundIntervalSec == null || other.roundIntervalSec == null) &&
+            (sellRefundFraction == null || other.sellRefundFraction == null)
 
     /** Both rules at once. Only meaningful for [compatibleWith] pairs. */
     operator fun plus(other: MatchModifier): MatchModifier = MatchModifier(
@@ -199,6 +233,10 @@ data class MatchModifier(
         matchDurationOverrideSec = matchDurationOverrideSec ?: other.matchDurationOverrideSec,
         roundIntervalSec = roundIntervalSec ?: other.roundIntervalSec,
         startingGoldBonus = startingGoldBonus + other.startingGoldBonus,
+        waveSizeMultiplier = waveSizeMultiplier * other.waveSizeMultiplier,
+        sendCooldownMultiplier = sendCooldownMultiplier * other.sendCooldownMultiplier,
+        eventGapMultiplier = eventGapMultiplier * other.eventGapMultiplier,
+        sellRefundFraction = sellRefundFraction ?: other.sellRefundFraction,
         mirrorDraft = mirrorDraft || other.mirrorDraft
     )
 }
@@ -223,7 +261,12 @@ enum class MatchEventType(val label: String, val blurb: String, val durationSec:
     POWER_SURGE("Power Surge", "Towers hit 40% harder", 12),
     OVERDRIVE("Overdrive", "Towers fire 30% faster", 12),
     FOG("Fog", "Towers reach 20% less far", 12),
-    COLD_SNAP("Cold Snap", "Units move at half speed", 7)
+    COLD_SNAP("Cold Snap", "Units move at half speed", 7),
+    THUNDERCLAP("Thunderclap", "Every unit on the track loses a third of its health", 0),
+    TINKER("Tinker's Gift", "A tower on each side is upgraded for free", 0),
+    CLEAR_SKIES("Clear Skies", "Towers reach 20% further", 12),
+    BLACKOUT("Blackout", "No tower fires", 4),
+    RECRUITING("Recruiting", "Sends raise income twice as much", 14)
 }
 
 enum class Difficulty(val label: String, val blurb: String) {
@@ -240,7 +283,9 @@ enum class AiPersonality(val label: String, val blurb: String) {
     SWARMER("Swarmer", "Floods your lane with small units, again and again."),
     BRUISER("Bruiser", "Saves for the heaviest units it can send."),
     GAMBLER("Gambler", "Pokes with scraps, then bets everything at once."),
-    TRICKSTER("Trickster", "Mixes units that cover for each other and never repeats itself.")
+    TRICKSTER("Trickster", "Mixes units that cover for each other and never repeats itself."),
+    AVALANCHE("Avalanche", "Starts small. Every push is bigger than the one before."),
+    OPPORTUNIST("Opportunist", "Waits until your purse is empty, then strikes.")
 }
 
 /** What a rival says, and when. Each list is picked from at random. */

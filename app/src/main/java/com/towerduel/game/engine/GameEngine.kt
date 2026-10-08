@@ -44,14 +44,25 @@ private const val WARNING_SEND_COST = 90
 /** Armour never takes more than this share off a hit, so even rapid fire does something. */
 private const val ARMOR_MAX_REDUCTION = 0.8f
 
-/** A unit this heavy is thrown back half as far as a featherweight. */
-private const val KNOCKBACK_HALF_HP = 300f
+/** A unit this heavy is thrown back half as far as a featherweight. The AI reads it to judge knockback. */
+const val KNOCKBACK_HALF_HP = 300f
 
 /** Regeneration waits this long after the last hit. */
 private const val REGEN_DELAY_MS = 1000f
 
 /** A Drummer's haste lasts this long after leaving its aura. */
 private const val HASTE_LINGER_MS = 300f
+
+/** A tower that was just jammed cannot be jammed again for this long once it recovers. */
+private const val JAM_IMMUNITY_MS = 2000f
+
+/**
+ * Support towers stack, but only so far: towers stand close enough now for thirty Beacons to
+ * surround one Sniper. A tower gets at most this much extra damage, fire rate and reach from them.
+ */
+const val MAX_DAMAGE_AURA = 1.5f
+const val MAX_RELOAD_AURA = 1f
+const val MAX_RANGE_AURA = 0.75f
 
 private const val GLAIVE_SPEED = 60f
 private const val GLAIVE_REACH = 1.3f
@@ -67,6 +78,9 @@ private const val COLD_SNAP_SPEED = 0.5f
 private const val AMBUSH_WAVE_SCALE = 0.5f
 private const val SECOND_WIND_LIVES = 10
 private const val BOUNTY_RUSH_PAY = 3f
+private const val CLEAR_SKIES_RANGE = 1.2f
+private const val THUNDERCLAP_SHARE = 0.33f
+private const val RECRUITING_INCOME = 2f
 
 class GameEngine(
     val map: MapDef,
@@ -118,7 +132,8 @@ class GameEngine(
     var event: ActiveEvent? = null
         private set
     private var nextEventAtMs =
-        (GameData.FIRST_EVENT_MIN_SEC + rng.nextInt(GameData.FIRST_EVENT_MAX_SEC - GameData.FIRST_EVENT_MIN_SEC + 1)) * 1000f
+        (GameData.FIRST_EVENT_MIN_SEC + rng.nextInt(GameData.FIRST_EVENT_MAX_SEC - GameData.FIRST_EVENT_MIN_SEC + 1)) *
+            1000f * modifier.eventGapMultiplier
 
     /** Sounds waiting to be played. Whoever owns the engine drains this every frame. */
     val cues = ArrayList<CueEvent>()
@@ -146,19 +161,23 @@ class GameEngine(
         return ceil((e.endsAtMs - elapsedMs) / 1000f).toInt().coerceAtLeast(0)
     }
 
-    private fun rangeFactor(): Float = modifier.rangeMultiplier * (if (activeEvent() == MatchEventType.FOG) FOG_RANGE else 1f)
+    private fun rangeFactor(): Float = modifier.rangeMultiplier * when (activeEvent()) {
+        MatchEventType.FOG -> FOG_RANGE
+        MatchEventType.CLEAR_SKIES -> CLEAR_SKIES_RANGE
+        else -> 1f
+    }
 
     /** How far [tower] reaches in lane units: its attack range, or its aura for support towers. */
     fun towerReach(tower: TowerInstance): Float =
-        if (tower.type.auraRange > 0f) tower.auraRange else tower.range * rangeFactor()
+        if (tower.type.auraRange > 0f) tower.auraRange else tower.range * rangeFactor() * (1f + tower.rangeBonus)
 
     /** The reach a freshly placed [type] would have. */
     fun baseReach(type: TroopType): Float =
         if (type.auraRange > 0f) type.auraRange else type.range * rangeFactor()
 
-    /** Damage of one shot from [tower], with the match rule, Beacon boosts and any event applied. */
+    /** Damage of one shot from [tower], with the match rule, Beacon boosts, its own kills and any event applied. */
     fun shotDamage(tower: TowerInstance): Float =
-        tower.damage * modifier.damageMultiplier * (1f + tower.auraBonus) *
+        tower.damage * modifier.damageMultiplier * (1f + tower.auraBonus) * (1f + tower.killBonus) *
             (if (activeEvent() == MatchEventType.POWER_SURGE) SURGE_DAMAGE else 1f)
 
     /** Milliseconds between [tower]'s shots right now. */
@@ -166,7 +185,8 @@ class GameEngine(
         tower.reloadMs * modifier.reloadMultiplier / (1f + tower.reloadBonus) *
             (if (activeEvent() == MatchEventType.OVERDRIVE) OVERDRIVE_RELOAD else 1f)
 
-    fun sellRefund(tower: TowerInstance): Int = (tower.invested * SELL_REFUND_FRACTION).toInt()
+    fun sellRefund(tower: TowerInstance): Int =
+        (tower.invested * (modifier.sellRefundFraction ?: SELL_REFUND_FRACTION)).toInt()
 
     private fun incomeFactor(): Float =
         modifier.incomeMultiplier * (if (activeEvent() == MatchEventType.PAYDAY) PAYDAY_INCOME else 1f)
@@ -180,6 +200,9 @@ class GameEngine(
     /** Income a send of [type] adds under this match's rules. */
     fun sendIncome(type: EnemySendType): Float = type.incomeBonus * modifier.sendIncomeMultiplier
 
+    /** Milliseconds before [type] can be sent again under this match's rules. */
+    fun sendCooldownMs(type: EnemySendType): Float = type.cooldownMs * modifier.sendCooldownMultiplier
+
     /** The wave level (1..WAVE_LEVELS) the match is at in [forRound]; also what gates the bigger sends. */
     private fun waveLevel(forRound: Int): Int =
         ceil(forRound * levelStride).toInt().coerceIn(1, GameData.WAVE_LEVELS)
@@ -192,7 +215,7 @@ class GameEngine(
     /** 0 when [field] may send [type] again, counting down from 1 right after a send. */
     fun sendCooldownFraction(field: Battlefield, type: EnemySendType): Float {
         val readyAt = field.sendReadyAtMs[type.id] ?: return 0f
-        return ((readyAt - elapsedMs) / type.cooldownMs).coerceIn(0f, 1f)
+        return ((readyAt - elapsedMs) / sendCooldownMs(type)).coerceIn(0f, 1f)
     }
 
     /** True while [enemy] is still tunnelling under the first stretch of the track. */
@@ -288,8 +311,8 @@ class GameEngine(
         if (elapsedMs < (source.sendReadyAtMs[type.id] ?: 0f)) return SendResult.COOLING_DOWN
         if (source.gold < type.cost) return SendResult.NOT_ENOUGH_GOLD
         source.gold -= type.cost
-        source.ecoIncome += sendIncome(type)
-        source.sendReadyAtMs[type.id] = elapsedMs + type.cooldownMs
+        source.ecoIncome += sendIncome(type) * (if (activeEvent() == MatchEventType.RECRUITING) RECRUITING_INCOME else 1f)
+        source.sendReadyAtMs[type.id] = elapsedMs + sendCooldownMs(type)
         source.stats.unitsSent += type.count
         // A sent unit is as tough as the wave units of the round it is sent in, so sends never go stale.
         val hpScale = sendHpScale()
@@ -335,7 +358,7 @@ class GameEngine(
 
     /** The wave of [forRound]: generated once from the match seed, the same for both lanes. */
     private fun waveFor(forRound: Int): Wave = waves.getOrPut(forRound) {
-        WaveGenerator.generate(waveLevel(forRound), roster, Random(seed * 31L + forRound))
+        WaveGenerator.generate(waveLevel(forRound), roster, Random(seed * 31L + forRound), modifier.waveSizeMultiplier)
     }
 
     private fun levelHpScale(level: Int): Float {
@@ -404,12 +427,32 @@ class GameEngine(
             }
             MatchEventType.AMBUSH -> {
                 val level = waveLevel(round.coerceAtLeast(1))
-                val wave = WaveGenerator.generate(level, roster, rng, AMBUSH_WAVE_SCALE)
+                val wave = WaveGenerator.generate(level, roster, rng, AMBUSH_WAVE_SCALE * modifier.waveSizeMultiplier)
                 release(wave, waveHpScaleFor(round.coerceAtLeast(1)), waveSpeedScaleFor(round))
+            }
+            MatchEventType.THUNDERCLAP -> {
+                // Hurts, never kills: what is left still has to be shot down.
+                for (field in arrayOf(playerField, aiField)) {
+                    for (e in field.incomingEnemies) {
+                        if (!canBeHit(e)) continue
+                        e.hp -= e.hp * THUNDERCLAP_SHARE
+                        e.lastHitAtMs = elapsedMs
+                        field.fx.add(FxEvent(FxKind.BOLT, e.x + 3f, e.y - 16f, 260f, x2 = e.x, y2 = e.y, seed = rng.nextInt()))
+                    }
+                }
+            }
+            MatchEventType.TINKER -> {
+                for (field in arrayOf(playerField, aiField)) {
+                    val tower = field.towers.filter { it.nextUpgrade != null }.randomOrNull(rng) ?: continue
+                    tower.applyNextUpgrade(elapsedMs)
+                    refreshAuras(field)
+                    field.fx.add(FxEvent(FxKind.SPARKLE, tower.x, tower.y, 900f, size = 6f, seed = rng.nextInt()))
+                }
             }
             else -> Unit // a timed effect: read wherever it applies, through activeEvent()
         }
-        val gap = GameData.EVENT_GAP_MIN_SEC + rng.nextInt(GameData.EVENT_GAP_MAX_SEC - GameData.EVENT_GAP_MIN_SEC + 1)
+        val gap = (GameData.EVENT_GAP_MIN_SEC + rng.nextInt(GameData.EVENT_GAP_MAX_SEC - GameData.EVENT_GAP_MIN_SEC + 1)) *
+            modifier.eventGapMultiplier
         nextEventAtMs = elapsedMs + (type.durationSec + gap) * 1000f
         cue(SoundCue.EVENT, null)
     }
@@ -441,6 +484,7 @@ class GameEngine(
     // -------------------------------------------------------------------
 
     private fun towerPass(field: Battlefield, dtSeconds: Float) {
+        val blackout = activeEvent() == MatchEventType.BLACKOUT
         for (i in field.towers.indices) {
             val tower = field.towers[i]
 
@@ -471,6 +515,11 @@ class GameEngine(
 
             tower.cooldownMs -= dtSeconds * 1000f
             if (!tower.type.isAttacker) continue
+            if (blackout || elapsedMs < tower.jammedUntilMs) {
+                tower.rampTarget = null
+                tower.rampBonus = 0f
+                continue
+            }
 
             val range = towerReach(tower)
             val target = pickTarget(field, tower, range, null)
@@ -496,6 +545,10 @@ class GameEngine(
         val huntsFlyers = tower.type.bonusDamageVsFlyerPct > 0f
         var best: EnemyUnit? = null
         var bestScore = Float.NEGATIVE_INFINITY
+        // A unit with enough shots already on their way to kill it is only a target if there is no other:
+        // a cluster of towers spreads its fire instead of all burying the same Runner.
+        var doomed: EnemyUnit? = null
+        var doomedScore = Float.NEGATIVE_INFINITY
         // Units killed earlier this tick stay in the list until enemyPass, so skip them here.
         for (i in field.incomingEnemies.indices) {
             val e = field.incomingEnemies[i]
@@ -511,19 +564,24 @@ class GameEngine(
                 TargetPriority.CLOSEST -> -d2
             }
             if (huntsFlyers && e.type.flying) score += 1_000_000f
-            if (score > bestScore) {
+            if (e.pendingDamage >= e.hp && e.shieldLeft == 0) {
+                if (score > doomedScore) {
+                    doomedScore = score
+                    doomed = e
+                }
+            } else if (score > bestScore) {
                 bestScore = score
                 best = e
             }
         }
-        return best
+        return best ?: doomed
     }
 
     private fun fire(field: Battlefield, tower: TowerInstance, primary: EnemyUnit, range: Float) {
         val damage = shotDamage(tower)
         when (tower.type.shot) {
             ShotKind.NONE -> Unit
-            ShotKind.FROST_PULSE, ShotKind.POISON_PULSE, ShotKind.GUST_PULSE, ShotKind.QUAKE_PULSE ->
+            ShotKind.FROST_PULSE, ShotKind.POISON_PULSE, ShotKind.GUST_PULSE, ShotKind.QUAKE_PULSE, ShotKind.NOVA_PULSE ->
                 pulse(field, tower, range, damage)
             ShotKind.RAIL -> {
                 field.fx.add(FxEvent(FxKind.TRACER, muzzleX(tower), muzzleY(tower), 180f, x2 = primary.x, y2 = primary.y, tower = tower.type))
@@ -591,7 +649,8 @@ class GameEngine(
                     launch(field, tower, extra, damage)
                     previous = extra
                 }
-                cue(if (tower.type.shot == ShotKind.SHELL) SoundCue.SHOOT_HEAVY else SoundCue.SHOOT, field)
+                val heavy = tower.type.shot == ShotKind.SHELL || tower.type.shot == ShotKind.ROCKET
+                cue(if (heavy) SoundCue.SHOOT_HEAVY else SoundCue.SHOOT, field)
             }
         }
     }
@@ -602,6 +661,7 @@ class GameEngine(
             ShotKind.SHELL -> 52f
             ShotKind.NET -> 68f
             ShotKind.ORB -> 62f
+            ShotKind.ROCKET -> 58f
             else -> 78f
         }
         val angle = atan2(target.y - tower.y, target.x - tower.x)
@@ -612,14 +672,16 @@ class GameEngine(
         )
         p.angle = angle
         field.projectiles.add(p)
+        target.pendingDamage += damage
     }
 
-    /** One burst that reaches everything in range: cold, poison, wind or a quake. The effect itself is applied by [hit]. */
+    /** One burst that reaches everything in range: cold, poison, wind, a quake or raw energy. The effect itself is applied by [hit]. */
     private fun pulse(field: Battlefield, tower: TowerInstance, range: Float, damage: Float) {
         val kind = when (tower.type.shot) {
             ShotKind.FROST_PULSE -> FxKind.FROST_RING
             ShotKind.GUST_PULSE -> FxKind.GUST_RING
             ShotKind.QUAKE_PULSE -> FxKind.QUAKE_RING
+            ShotKind.NOVA_PULSE -> FxKind.NOVA_RING
             else -> FxKind.POISON_CLOUD
         }
         field.fx.add(FxEvent(kind, tower.x, tower.y, 520f, size = range))
@@ -633,6 +695,7 @@ class GameEngine(
                 ShotKind.FROST_PULSE -> SoundCue.FREEZE
                 ShotKind.GUST_PULSE -> SoundCue.SEND
                 ShotKind.QUAKE_PULSE -> SoundCue.BOOM
+                ShotKind.NOVA_PULSE -> SoundCue.ZAP
                 else -> SoundCue.SHOOT
             },
             field
@@ -677,14 +740,17 @@ class GameEngine(
         for (tower in field.towers) {
             var damage = 0f
             var reload = 0f
+            var reach = 0f
             for (other in field.towers) {
-                if (other === tower || (other.auraPct <= 0f && other.auraReloadPct <= 0f)) continue
+                if (other === tower || other.type.auraRange <= 0f) continue
                 if (dist(other.x, other.y, tower.x, tower.y) > other.auraRange) continue
                 damage += other.auraPct / 100f
                 reload += other.auraReloadPct / 100f
+                reach += other.auraRangePct / 100f
             }
-            tower.auraBonus = damage
-            tower.reloadBonus = reload
+            tower.auraBonus = damage.coerceAtMost(MAX_DAMAGE_AURA)
+            tower.reloadBonus = reload.coerceAtMost(MAX_RELOAD_AURA)
+            tower.rangeBonus = reach.coerceAtMost(MAX_RANGE_AURA)
         }
     }
 
@@ -737,6 +803,7 @@ class GameEngine(
             val d = sqrt(dx * dx + dy * dy)
             val step = p.speed * dtSeconds
             if (d <= step + 0.8f) {
+                if (target != null) target.pendingDamage -= p.damage
                 impact(field, p)
                 p.done = true
             } else {
@@ -777,12 +844,22 @@ class GameEngine(
 
     /**
      * Every way a tower hurts a unit ends here: the damage, and whatever the tower does on top of
-     * it (slow, stun, poison, curse, knockback, execution).
+     * it (slow, stun, poison, curse, knockback, cracked armour, execution).
      */
     private fun hit(field: Battlefield, tower: TowerInstance, target: EnemyUnit, damage: Float, fraction: Float = 1f) {
         if (!target.alive || isPhased(target)) return
         val type = tower.type
         val unit = target.type
+
+        // A bubble swallows the whole hit, effects and all, whatever its size.
+        if (target.shieldLeft > 0) {
+            target.shieldLeft--
+            field.fx.add(FxEvent(FxKind.BUBBLE_HIT, target.x, target.y, 260f, size = unit.radius))
+            return
+        }
+        if (type.sundersArmor) target.sundered = true
+        val armor = if (target.sundered) 0f else unit.armor
+        val resistance = if (target.sundered) 0f else unit.damageResistancePct
 
         var dmg = damage * fraction
         val crit = tower.critChance > 0f && rng.nextFloat() < tower.critChance
@@ -790,11 +867,11 @@ class GameEngine(
         dmg = if (type.bonusDamageVsFlyerPct > 0f && unit.flying) {
             dmg * (1f + type.bonusDamageVsFlyerPct / 100f)
         } else {
-            dmg * (1f - unit.damageResistancePct / 100f)
+            dmg * (1f - resistance / 100f)
         }
         if (elapsedMs < target.vulnerableUntilMs) dmg *= 1f + target.vulnerability
         if (elapsedMs < target.wardUntilMs) dmg *= 1f - target.ward
-        if (unit.armor > 0f) dmg = maxOf(dmg - unit.armor, dmg * (1f - ARMOR_MAX_REDUCTION))
+        if (armor > 0f) dmg = maxOf(dmg - armor, dmg * (1f - ARMOR_MAX_REDUCTION))
         target.hp -= dmg.coerceAtLeast(0f)
         target.lastHitAtMs = elapsedMs
         if (crit) field.fx.add(FxEvent(FxKind.CRIT, target.x, target.y - unit.radius, 520f, size = unit.radius))
@@ -847,15 +924,46 @@ class GameEngine(
         }
         cue(if (enemy.type.radius >= 3f) SoundCue.POP_BIG else SoundCue.POP, field)
 
-        val childId = enemy.type.spawnOnDeathId ?: return
-        val childType = GameData.unit(childId)
-        val hpScale = enemy.maxHp / (enemy.type.maxHp * modifier.unitHpMultiplier)
-        for (i in 0 until enemy.type.spawnOnDeathCount) {
-            val child = newEnemy(field, childType, hpScale, enemy.speedScale)
-            child.dist = (enemy.dist - i * 1.6f).coerceAtLeast(0f)
-            place(child)
-            newborns.add(child)
+        if (enemy.type.jamOnDeathMs > 0L) jamTowers(field, enemy)
+
+        val childId = enemy.type.spawnOnDeathId
+        if (childId != null) {
+            val childType = GameData.unit(childId)
+            for (i in 0 until enemy.type.spawnOnDeathCount) {
+                val child = newEnemy(field, childType, hpScaleOf(enemy), enemy.speedScale)
+                child.dist = (enemy.dist - i * 1.6f).coerceAtLeast(0f)
+                place(child)
+                newborns.add(child)
+            }
         }
+
+        // A Detonator's kill goes off. The blast is a hit like any other, so it can set off the next one.
+        if (by != null && by.deathBlast > 0f) {
+            val blast = enemy.maxHp * by.deathBlast
+            field.fx.add(FxEvent(FxKind.EXPLOSION, enemy.x, enemy.y, 380f, size = by.blastRadius, seed = rng.nextInt()))
+            for (i in field.incomingEnemies.indices) {
+                val e = field.incomingEnemies[i]
+                if (!e.alive || dist(enemy.x, enemy.y, e.x, e.y) > by.blastRadius) continue
+                hit(field, by, e, blast)
+            }
+            cue(SoundCue.BOOM, field)
+        }
+    }
+
+    /** How much tougher than its listed health [enemy] was made: what its offspring inherit. */
+    private fun hpScaleOf(enemy: EnemyUnit): Float = enemy.maxHp / (enemy.type.maxHp * modifier.unitHpMultiplier)
+
+    /** A Jammer popped: the towers around it stop firing for a moment. */
+    private fun jamTowers(field: Battlefield, enemy: EnemyUnit) {
+        val radius = enemy.type.jamRadius
+        for (t in field.towers) {
+            if (!t.type.isAttacker || dist(t.x, t.y, enemy.x, enemy.y) > radius) continue
+            // Still jammed, or only just recovered: a column of Jammers cannot hold a tower down for good.
+            if (elapsedMs < t.jammedUntilMs + JAM_IMMUNITY_MS) continue
+            t.jammedUntilMs = elapsedMs + enemy.type.jamOnDeathMs
+        }
+        field.fx.add(FxEvent(FxKind.JAM_RING, enemy.x, enemy.y, 520f, size = radius))
+        cue(SoundCue.ZAP, field)
     }
 
     // -------------------------------------------------------------------
@@ -922,8 +1030,14 @@ class GameEngine(
             val heals = source.type.healPerSecond > 0f
             val hastens = source.type.hasteAuraPct > 0f
             val wards = source.type.wardAuraPct > 0f
-            if (!heals && !hastens && !wards) continue
-            val radius = if (heals) source.type.healRadius else if (hastens) source.type.hasteRadius else source.type.wardRadius
+            val cleanses = source.type.cleanseRadius > 0f
+            if (!heals && !hastens && !wards && !cleanses) continue
+            val radius = when {
+                heals -> source.type.healRadius
+                hastens -> source.type.hasteRadius
+                wards -> source.type.wardRadius
+                else -> source.type.cleanseRadius
+            }
             for (j in enemies.indices) {
                 val target = enemies[j]
                 if (!target.alive || abs(target.dist - source.dist) > radius) continue
@@ -937,9 +1051,20 @@ class GameEngine(
                     target.ward = source.type.wardAuraPct / 100f
                     target.wardUntilMs = elapsedMs + HASTE_LINGER_MS
                 }
+                // A Monk, like a Warder, looks after the others and not itself.
+                if (cleanses && target !== source) {
+                    target.slowExpiresAtMs = 0f
+                    target.dotExpiresAtMs = 0f
+                    target.vulnerableUntilMs = 0f
+                }
             }
             if (auraFx && source.x >= MIN_TARGET_X && !isBurrowed(source)) {
-                val kind = if (heals) FxKind.HEAL else if (hastens) FxKind.HASTE else FxKind.WARD
+                val kind = when {
+                    heals -> FxKind.HEAL
+                    hastens -> FxKind.HASTE
+                    wards -> FxKind.WARD
+                    else -> FxKind.CLEANSE
+                }
                 field.fx.add(FxEvent(kind, source.x, source.y, 600f, size = radius * 0.55f))
             }
         }
@@ -966,10 +1091,28 @@ class GameEngine(
                 field.stats.leaks++
                 field.lastLeakAtMs = elapsedMs
                 field.fx.add(FxEvent(FxKind.LIFE_TEXT, enemy.x, enemy.y - 4f, 1000f, value = enemy.type.livesDamage))
+                if (enemy.type.stealsIncomeSec > 0f) {
+                    // A Bandit got home: the loot goes to the other side.
+                    val loot = minOf(field.gold, incomePerSec(field) * enemy.type.stealsIncomeSec).toInt()
+                    if (loot > 0) {
+                        field.gold -= loot
+                        earn(if (field === playerField) aiField else playerField, loot.toFloat())
+                        field.fx.add(FxEvent(FxKind.GOLD_LOSS, enemy.x - 5f, enemy.y + 1f, 1100f, value = loot))
+                    }
+                }
                 cue(SoundCue.LEAK, field)
                 continue
             }
             place(enemy)
+
+            val layId = enemy.type.spawnEveryId
+            if (layId != null && elapsedMs >= enemy.nextSpawnAtMs && enemy.x >= MIN_TARGET_X) {
+                enemy.nextSpawnAtMs = elapsedMs + enemy.type.spawnEveryMs
+                val child = newEnemy(field, GameData.unit(layId), hpScaleOf(enemy), enemy.speedScale)
+                child.dist = (enemy.dist - enemy.type.radius).coerceAtLeast(0f)
+                place(child)
+                newborns.add(child)
+            }
         }
 
         if (newborns.isNotEmpty()) {

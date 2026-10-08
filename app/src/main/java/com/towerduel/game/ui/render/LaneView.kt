@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
 import com.towerduel.game.R
 import com.towerduel.game.data.LaneSpace
+import com.towerduel.game.data.MatchEventType
 import com.towerduel.game.data.ShotKind
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.Battlefield
@@ -42,6 +43,7 @@ import com.towerduel.game.engine.FxKind
 import com.towerduel.game.engine.GameEngine
 import com.towerduel.game.engine.PlaceResult
 import com.towerduel.game.engine.Projectile
+import com.towerduel.game.engine.TowerInstance
 import com.towerduel.game.ui.theme.Frost
 import com.towerduel.game.ui.theme.Ink
 import com.towerduel.game.ui.theme.Leaf
@@ -178,12 +180,29 @@ class LanePainter(typeface: Typeface) {
         val hurt = (1f - (now - field.lastLeakAtMs) / 450f).coerceIn(0f, 1f)
         drawBase(path.xs[last] * u, path.ys[last] * u, u, team, hurt, now)
 
+        // Towers may stand close enough for their platforms to overlap. Every platform goes down
+        // before any body, one layer at a time, so neighbours share a pavement instead of covering each other.
+        for (layer in 0 until BASE_LAYERS) {
+            for (i in field.towers.indices) {
+                val t = field.towers[i]
+                drawTowerBase(t.type, t.level, t.x * u, t.y * u, u * towerPop(t, now), layer)
+            }
+        }
         for (i in field.towers.indices) {
             val t = field.towers[i]
-            // A freshly placed or upgraded tower lands with a little bounce.
-            val pop = popScale(now - t.placedAtMs) * popScale(now - t.upgradedAtMs)
-            drawTower(t.type, t.level, t.shots, t.x * u, t.y * u, u * pop, t.aimAngle, now - t.lastFiredAtMs, now)
+            drawTowerBody(t.type, t.shots, t.x * u, t.y * u, u * towerPop(t, now), t.aimAngle, now - t.lastFiredAtMs, now)
+        }
+        val blackout = engine.event?.type == MatchEventType.BLACKOUT && engine.eventSecondsLeft() > 0
+        for (i in field.towers.indices) {
+            val t = field.towers[i]
+            drawTowerPips(t.level, t.x * u, t.y * u, u * towerPop(t, now))
             if (t.auraBonus > 0f) drawStar(Sun, (t.x + 2.4f) * u, (t.y - 2.4f) * u, 0.9f * u, OUTLINE * 0.6f * u)
+            if (t.type.isAttacker && (blackout || now < t.jammedUntilMs)) {
+                // Out of action: dimmed, with a spark jumping across it
+                val c = Offset(t.x * u, t.y * u)
+                drawCircle(Ink.copy(alpha = 0.4f), 2.6f * u, c)
+                drawBolt(Offset(c.x - 2.2f * u, c.y - 1.4f * u), Offset(c.x + 2.2f * u, c.y + 1.2f * u), (now / 90f).toInt() + i, 1f, u)
+            }
         }
 
         for (i in field.incomingEnemies.indices) {
@@ -202,7 +221,7 @@ class LanePainter(typeface: Typeface) {
 
         if (ghost != null) {
             val ok = ghost.result == PlaceResult.OK || ghost.result == PlaceResult.NOT_ENOUGH_GOLD
-            drawTower(ghost.type, 0, 1, ghost.x * u, ghost.y * u, u, -PI.toFloat() / 2f, 10_000f, now)
+            drawTower(ghost.type, 0, ghost.type.shots, ghost.x * u, ghost.y * u, u, -PI.toFloat() / 2f, 10_000f, now)
             if (!ok) {
                 // A red cross over a spot that cannot be built on
                 val c = Offset(ghost.x * u, ghost.y * u)
@@ -214,6 +233,9 @@ class LanePainter(typeface: Typeface) {
             }
         }
     }
+
+    /** A freshly placed or upgraded tower lands with a little bounce. */
+    private fun towerPop(t: TowerInstance, now: Float): Float = popScale(now - t.placedAtMs) * popScale(now - t.upgradedAtMs)
 
     private fun popScale(ageMs: Float): Float {
         if (ageMs < 0f || ageMs > 260f) return 1f
@@ -248,7 +270,9 @@ class LanePainter(typeface: Typeface) {
             stunned = now < e.stunExpiresAtMs,
             poisoned = now < e.dotExpiresAtMs,
             cursed = now < e.vulnerableUntilMs,
-            hasted = now < e.hasteUntilMs
+            hasted = now < e.hasteUntilMs,
+            shielded = e.shieldLeft > 0,
+            cracked = e.sundered
         )
         if (phased) drawContext.canvas.restore()
     }
@@ -266,8 +290,17 @@ class LanePainter(typeface: Typeface) {
                 blob(Color(0xFF3A3448), x, y - height * 9f * u, (0.9f + 0.7f * height) * u, ow)
             }
             ShotKind.SHELL -> {
-                blob(Color(0xFF3A3448), x, y, 0.95f * u, ow)
+                // A Glue Gun lobs a blob of its own colour; everyone else, an iron ball
+                blob(if (p.source.type.slowFactor > 0f) color else Color(0xFF3A3448), x, y, 0.95f * u, ow)
                 drawCircle(Color.White.copy(alpha = 0.5f), 0.3f * u, Offset(x - 0.3f * u, y - 0.3f * u))
+            }
+            ShotKind.ROCKET -> {
+                rotate(p.angle * 180f / PI.toFloat(), Offset(x, y)) {
+                    drawCircle(Color(0xFFFF8A2B).copy(alpha = 0.5f), 0.75f * u, Offset(x - 1.9f * u, y))
+                    drawCircle(Color(0xFFFFD75A).copy(alpha = 0.85f), 0.5f * u, Offset(x - 1.45f * u, y))
+                    slab(Color.White, x - 1.1f * u, y - 0.36f * u, 1.7f * u, 0.72f * u, 0.3f * u, ow * 0.8f)
+                    shape(color, ow * 0.8f, x + 0.5f * u, y - 0.5f * u, x + 1.5f * u, y, x + 0.5f * u, y + 0.5f * u)
+                }
             }
             ShotKind.BULLET -> {
                 val tail = 1.8f * u
@@ -346,6 +379,24 @@ class LanePainter(typeface: Typeface) {
                     drawCircle(Color.White.copy(alpha = 0.8f * (1f - t)), r, c, style = Stroke((0.7f - 0.25f * k) * u))
                 }
                 drawCircle(Color(0xFFBFE3FF).copy(alpha = 0.18f * (1f - t)), fx.size * u * (0.2f + 0.8f * ease), c)
+            }
+            FxKind.NOVA_RING -> {
+                // A flash that fills the whole reach, then a hard edge racing out
+                val r = fx.size * u * (0.2f + 0.8f * ease)
+                val pink = Color(0xFFFF7AD9)
+                drawCircle(pink.copy(alpha = 0.3f * (1f - t)), fx.size * u, c)
+                drawCircle(pink.copy(alpha = 0.9f * (1f - t)), r, c, style = Stroke(0.9f * u))
+                drawCircle(Color.White.copy(alpha = 0.9f * (1f - t)), r, c, style = Stroke(0.35f * u))
+            }
+            FxKind.JAM_RING -> {
+                val r = fx.size * u * (0.2f + 0.8f * ease)
+                drawCircle(Sun.copy(alpha = 0.18f * (1f - t)), r, c)
+                drawCircle(Ink.copy(alpha = 0.5f * (1f - t)), r, c, style = Stroke(1f * u))
+                drawCircle(Sun.copy(alpha = 0.95f * (1f - t)), r, c, style = Stroke(0.5f * u))
+            }
+            FxKind.CLEANSE -> {
+                val r = fx.size * u * (0.3f + 0.7f * ease)
+                drawCircle(Color.White.copy(alpha = 0.8f * (1f - t)), r, c, style = Stroke(0.5f * u))
             }
             FxKind.DUST -> {
                 for (i in 0 until 7) {
@@ -443,6 +494,12 @@ class LanePainter(typeface: Typeface) {
                 drawLine(Tomato.copy(alpha = 1f - t), Offset(c.x - r, c.y + r * 0.6f), Offset(c.x + r, c.y - r * 0.6f), 0.65f * u, StrokeCap.Round)
             }
             FxKind.LIFE_GAIN -> floatText("+${fx.value}", c.x, c.y - ease * 3.6f * u, 3.4f * u, Leaf, 1f - t * t * t)
+            FxKind.GOLD_LOSS -> floatText("-${fx.value} GOLD", c.x, c.y - ease * 4f * u, 3.6f * u, Sun, 1f - t * t * t)
+            FxKind.BUBBLE_HIT -> {
+                // The bubble wobbling as it takes one
+                val r = fx.size * u * (1.42f + 0.5f * ease)
+                drawCircle(Color.White.copy(alpha = 0.9f * (1f - t)), r, c, style = Stroke(0.4f * u))
+            }
             FxKind.LIFE_TEXT -> floatText("-${fx.value}", c.x, c.y - ease * 4.5f * u, 4.6f * u, Tomato, 1f - t * t * t)
             else -> Unit
         }

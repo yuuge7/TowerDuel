@@ -41,6 +41,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -506,6 +507,7 @@ private fun towerStatLine(tower: TowerInstance, eng: GameEngine): String {
         type.incomeBonusPerSecond > 0f -> "+${oneDecimal(tower.income)} gold/s"
         type.livesPerMinute > 0f -> "+1 life every ${(60f / tower.livesPerMinute).roundToInt()} seconds"
         type.auraReloadBonusPct > 0f -> "+${tower.auraReloadPct.roundToInt()}% fire rate to towers in range"
+        type.auraRangeBonusPct > 0f -> "+${tower.auraRangePct.roundToInt()}% reach to towers in range"
         type.auraDamageBonusPct > 0f -> "+${tower.auraPct.roundToInt()}% damage to towers in range"
         // Their hit damage is a rounding error; the effect is the point.
         type.slowFactor > 0f -> "Slows ${(tower.slow * 100f).roundToInt()}% · range $range"
@@ -527,28 +529,28 @@ private fun oneDecimal(value: Float): String {
 
 @Composable
 private fun BuildCard(troop: TroopType, affordable: Boolean, armed: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    // Four cards share the row: the name gets the full width of its card, the picture and the price the line below.
+    val narrow = LocalConfiguration.current.screenWidthDp < 390
     ChunkyButton(
         onClick, modifier.fillMaxHeight(),
         color = if (armed) Sun else PanelLight, corner = 14.dp,
-        contentPadding = PaddingValues(horizontal = 5.dp)
+        contentPadding = PaddingValues(horizontal = 3.dp)
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TowerPortrait(troop, Modifier.size(46.dp).alpha(if (affordable || armed) 1f else 0.4f))
-            Spacer(Modifier.width(3.dp))
-            Column {
-                Text(
-                    troop.name, color = if (armed) Ink else if (affordable) Cream else Dim,
-                    fontWeight = FontWeight.Bold, fontSize = 11.5.sp, lineHeight = 12.sp,
-                    style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis
+        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                troop.name, color = if (armed) Ink else if (affordable) Cream else Dim,
+                fontWeight = FontWeight.Bold, fontSize = if (narrow) 9.5.sp else 10.5.sp, lineHeight = 12.sp,
+                style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TowerPortrait(troop, Modifier.size(if (narrow) 32.dp else 38.dp).alpha(if (affordable || armed) 1f else 0.4f))
+                Spacer(Modifier.width(1.dp))
+                GameIcon(GameIconKind.COIN, Modifier.size(12.dp))
+                Spacer(Modifier.width(1.dp))
+                OutlinedText(
+                    "${troop.cost}", fontSize = 14.5.sp, modifier = Modifier.offset(y = 1.dp),
+                    color = if (armed) Cream else if (affordable) Sun else Dim
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GameIcon(GameIconKind.COIN, Modifier.size(14.dp))
-                    Spacer(Modifier.width(2.dp))
-                    OutlinedText(
-                        "${troop.cost}", fontSize = 16.sp, modifier = Modifier.offset(y = 1.dp),
-                        color = if (armed) Cream else if (affordable) Sun else Dim
-                    )
-                }
             }
         }
     }

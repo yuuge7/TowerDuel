@@ -13,22 +13,27 @@ private const val MAX_GROUP = 28
 /** A wave may not take longer than this to walk on, or it would run into the next one. */
 private const val MAX_GROUP_SPAN_MS = 11_000f
 
+/** How many units a Queen is counted as laying before she is brought down. */
+private const val EXPECTED_LAYS = 6
+
 /**
  * Builds a round's wave from the match's roster: a health budget that grows with the level,
  * spent on a random theme. No two matches get the same waves.
  */
 object WaveGenerator {
 
-    private enum class Shape { MIXED, RUSH, SWARM, AIR, HEAVY, BOSS }
+    private enum class Shape { MIXED, RUSH, SWARM, AIR, HEAVY, IRON, WAR_BAND, ELITE, NEST, BOSS }
 
     /** Total wave health (before the per-level toughness scale) at [level], 1..WAVE_LEVELS. */
     fun budget(level: Int): Float = 70f + 45f * level + 5f * level * level
 
-    /** Health one unit brings, counting what it bursts into. */
+    /** Health one unit brings, counting what it bursts into (and what that bursts into) and what it lays. */
     fun unitHp(type: EnemySendType): Float {
         var hp = type.maxHp
         val childId = type.spawnOnDeathId
-        if (childId != null) hp += GameData.unit(childId).maxHp * type.spawnOnDeathCount
+        if (childId != null) hp += unitHp(GameData.unit(childId)) * type.spawnOnDeathCount
+        val laidId = type.spawnEveryId
+        if (laidId != null) hp += GameData.unit(laidId).maxHp * EXPECTED_LAYS
         return hp
     }
 
@@ -39,6 +44,11 @@ object WaveGenerator {
         if (type.armor > 0f) t *= 1.3f
         if (type.phaseMs > 0L) t *= 1.3f
         if (type.regenPerSecond > 0f) t *= 1.2f
+        if (type.shieldHits > 0) t *= 1.3f
+        if (type.jamOnDeathMs > 0L) t *= 1.2f
+        if (type.cleanseRadius > 0f || type.stealsIncomeSec > 0f) t *= 1.15f
+        // Small, quick and costly to let through: a wave of them is a wave of far fewer.
+        if (type.livesDamage >= 4 && type.maxHp < 100f) t *= 1.8f
         return t
     }
 
@@ -52,7 +62,11 @@ object WaveGenerator {
         val flyers = regulars.filter { it.flying }
         val swarmers = regulars.filter { it.count > 1 || it.spawnOnDeathCount >= 5 }
         val sprinters = regulars.filter { it.speed >= 11f && !it.flying }
-        val escorts = regulars.filter { it.healPerSecond > 0f || it.hasteAuraPct > 0f }
+        val escorts = regulars.filter {
+            it.healPerSecond > 0f || it.hasteAuraPct > 0f || it.wardAuraPct > 0f || it.cleanseRadius > 0f
+        }
+        val plated = regulars.filter { it.armor > 0f || it.shieldHits > 0 }
+        val breeders = regulars.filter { it.spawnOnDeathId != null || it.spawnEveryId != null }
         val filler = regulars.firstOrNull { it.id == "grunt" } ?: regulars.first()
 
         val shape = when {
@@ -65,6 +79,10 @@ object WaveGenerator {
                 if (swarmers.isNotEmpty()) repeat(2) { options.add(Shape.SWARM) }
                 if (flyers.isNotEmpty()) repeat(2) { options.add(Shape.AIR) }
                 if (heavies.isNotEmpty()) repeat(2) { options.add(Shape.HEAVY) }
+                if (plated.isNotEmpty()) options.add(Shape.IRON)
+                if (breeders.isNotEmpty()) options.add(Shape.NEST)
+                if (escorts.size >= 2 && heavies.isNotEmpty() && level >= 5) options.add(Shape.WAR_BAND)
+                if (heavies.isNotEmpty() && level >= 6) options.add(Shape.ELITE)
                 options[rng.nextInt(options.size)]
             }
         }
@@ -99,6 +117,28 @@ object WaveGenerator {
                 title = "HEAVY ARMOUR"
                 parts.add(heavies.random(rng) to 0.7f)
                 parts.add((escorts.randomOrNull(rng) ?: filler) to 0.3f)
+            }
+            Shape.IRON -> {
+                title = "IRON WALL"
+                parts.add(plated.random(rng) to 0.7f)
+                parts.add((escorts.randomOrNull(rng) ?: filler) to 0.3f)
+            }
+            Shape.NEST -> {
+                title = "BROOD NEST"
+                parts.add(breeders.random(rng) to 0.75f)
+                parts.add(filler to 0.25f)
+            }
+            Shape.WAR_BAND -> {
+                title = "WAR BAND"
+                val pair = escorts.shuffled(rng)
+                parts.add(heavies.random(rng) to 0.5f)
+                parts.add(pair[0] to 0.25f)
+                parts.add(pair[1] to 0.25f)
+            }
+            Shape.ELITE -> {
+                // Nothing but the toughest unit the roster has, and so only a handful of them.
+                title = "ELITE GUARD"
+                parts.add(heavies.maxBy { unitHp(it) * toughness(it) } to 1f)
             }
             Shape.BOSS -> {
                 title = "BOSS ROUND"

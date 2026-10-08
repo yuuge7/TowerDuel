@@ -43,9 +43,33 @@ class GeneratorsTest {
             assertEquals(GameData.ROSTER_SIZE, roster.size)
             assertEquals("no unit twice", roster.size, roster.toSet().size)
             assertTrue(roster.any { it.id == "runner" } && roster.any { it.id == "grunt" })
-            assertEquals("exactly one of the two finishers", 1, roster.count { it.id == "boss" || it.id == "juggernaut" })
+            assertEquals("exactly one finisher", 1, roster.count { it.id in GameData.ROSTER_FINISHERS })
             assertTrue(roster.all { it.sendable })
         }
+    }
+
+    @Test
+    fun everyUnitAUnitTurnsIntoExists_andNoneTurnsIntoItself() {
+        for (unit in GameData.ENEMY_SENDS) {
+            // unitHp follows the whole chain, so a loop in it would never return.
+            assertTrue("${unit.name} has no health to budget with", WaveGenerator.unitHp(unit) >= unit.maxHp)
+            for (childId in listOfNotNull(unit.spawnOnDeathId, unit.spawnEveryId)) {
+                assertTrue("${unit.name} turns into itself", childId != unit.id)
+                assertNotNull(GameData.unit(childId))
+            }
+        }
+    }
+
+    @Test
+    fun everyDraftCanHoldALane_andEveryTowerHasAFullUpgradeTrack() {
+        for (seed in 1..200) {
+            val offer = GameData.randomDraft(rng = Random(seed))
+            assertEquals(GameData.DRAFT_OFFER, offer.size)
+            assertEquals("no tower twice", offer.size, offer.toSet().size)
+            assertTrue(offer.count { it.baseDps >= GameData.MIN_DRAFT_DPS } >= 2)
+        }
+        assertEquals("no tower id twice", GameData.TROOPS.size, GameData.TROOPS.map { it.id }.toSet().size)
+        for (tower in GameData.TROOPS) assertEquals("${tower.name} upgrade tiers", 4, tower.maxLevel)
     }
 
     @Test

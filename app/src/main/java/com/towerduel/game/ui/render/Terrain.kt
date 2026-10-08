@@ -58,6 +58,18 @@ private fun paletteFor(theme: MapTheme): TerrainPalette = when (theme) {
         ground = Color(0xFFD3A54A), groundLight = Color(0xFFE3BC66), groundDark = Color(0xFFB98B38),
         track = Color(0xFFEBDDBD), trackLight = Color(0xFFF8EFD8), trackEdge = Color(0xFFB09868)
     )
+    MapTheme.CRYSTAL -> TerrainPalette(
+        ground = Color(0xFF8E7CD8), groundLight = Color(0xFFA696E6), groundDark = Color(0xFF7566C2),
+        track = Color(0xFFE6E0F5), trackLight = Color(0xFFF5F2FF), trackEdge = Color(0xFF9A8FC0)
+    )
+    MapTheme.CANDY -> TerrainPalette(
+        ground = Color(0xFFF7A8C8), groundLight = Color(0xFFFFC2DA), groundDark = Color(0xFFEF8DB5),
+        track = Color(0xFFFFF1D6), trackLight = Color(0xFFFFFAEC), trackEdge = Color(0xFFD9A066)
+    )
+    MapTheme.NIGHT -> TerrainPalette(
+        ground = Color(0xFF36527A), groundLight = Color(0xFF45658F), groundDark = Color(0xFF2A4265),
+        track = Color(0xFFB9C6DA), trackLight = Color(0xFFD5DEEC), trackEdge = Color(0xFF6B7C99)
+    )
 }
 
 /**
@@ -193,6 +205,33 @@ private fun DrawScope.groundDetail(theme: MapTheme, pal: TerrainPalette, x: Floa
             }
             drawOval(leaf.copy(alpha = 0.85f), Offset(x - 0.5f * u, y - 0.28f * u), Size(1f * u, 0.56f * u))
         }
+        MapTheme.CRYSTAL -> {
+            // A glint in the rock
+            val r = (0.3f + rnd.nextFloat() * 0.3f) * u
+            shape(Color.White.copy(alpha = 0.55f), 0f, x, y - r * 1.6f, x + r, y, x, y + r * 1.6f, x - r, y)
+        }
+        MapTheme.CANDY -> {
+            // A sprinkle
+            val sprinkle = when (rnd.nextInt(4)) {
+                0 -> Color(0xFFFFFFFF)
+                1 -> Color(0xFF7FD6F2)
+                2 -> Color(0xFFFFE066)
+                else -> Color(0xFFB98CF0)
+            }
+            val dx = (rnd.nextFloat() - 0.5f) * 1.6f * u
+            val dy = (rnd.nextFloat() - 0.5f) * 1.6f * u
+            drawLine(sprinkle, Offset(x, y), Offset(x + dx, y + dy), 0.4f * u, StrokeCap.Round)
+        }
+        MapTheme.NIGHT -> if (rnd.nextFloat() < 0.4f) {
+            // A firefly
+            drawCircle(Color(0xFFFFF2A0).copy(alpha = 0.25f), 0.7f * u, Offset(x, y))
+            drawCircle(Color(0xFFFFF2A0), 0.22f * u, Offset(x, y))
+        } else {
+            val c = pal.groundDark.darken(0.15f)
+            for (k in -1..1) {
+                drawLine(c, Offset(x + k * 0.45f * u, y), Offset(x + k * 0.85f * u, y - (0.9f + 0.3f * (1 - k * k)) * u), stroke, StrokeCap.Round)
+            }
+        }
     }
 }
 
@@ -294,6 +333,58 @@ private fun DrawScope.prop(theme: MapTheme, pal: TerrainPalette, x: Float, y: Fl
             drawOval(pumpkin, Offset(x - 1.3f * u, y - 0.95f * u), Size(2.6f * u, 1.9f * u))
             drawOval(pumpkin.darken(0.15f), Offset(x - 0.45f * u, y - 0.95f * u), Size(0.9f * u, 1.9f * u), style = Stroke(0.2f * u))
             slab(Color(0xFF5E8F3A), x - 0.2f * u, y - 1.5f * u, 0.4f * u, 0.7f * u, 0.15f * u, ow * 0.7f)
+        }
+        MapTheme.CRYSTAL -> if (pick < 0.6f) {
+            // A cluster of crystals
+            val gem = if (rnd.nextBoolean()) Color(0xFF7FE3F2) else Color(0xFFFF9EEA)
+            shape(gem.darken(0.15f), ow, x + 1f * u, y - 1.1f * u, x + 1.7f * u, y + 0.3f * u, x + 1f * u, y + 1f * u, x + 0.3f * u, y + 0.3f * u)
+            shape(gem.darken(0.08f), ow, x - 1.1f * u, y - 0.7f * u, x - 0.5f * u, y + 0.3f * u, x - 1.1f * u, y + 1f * u, x - 1.7f * u, y + 0.3f * u)
+            shape(gem, ow, x - 0.1f * u, y - 2.2f * u, x + 0.8f * u, y - 0.1f * u, x - 0.1f * u, y + 1.2f * u, x - 1f * u, y - 0.1f * u)
+            shape(Color.White.copy(alpha = 0.7f), 0f, x - 0.1f * u, y - 1.8f * u, x + 0.3f * u, y - 0.2f * u, x - 0.4f * u, y - 0.2f * u)
+        } else {
+            // A geode, cracked open
+            val rock = Color(0xFF5A5470)
+            blob(rock, x, y, 1.35f * u, ow)
+            drawOval(Color(0xFFC79BF2), Offset(x - 0.85f * u, y - 0.65f * u), Size(1.7f * u, 1.3f * u))
+            drawOval(Color.White.copy(alpha = 0.8f), Offset(x - 0.4f * u, y - 0.35f * u), Size(0.7f * u, 0.5f * u))
+        }
+        MapTheme.CANDY -> if (pick < 0.5f) {
+            // A lollipop, lying where it fell
+            val swirl = if (rnd.nextBoolean()) Color(0xFFFF5C8A) else Color(0xFF58C7D8)
+            slab(Color.White, x - 0.2f * u, y, 0.4f * u, 2f * u, 0.2f * u, ow * 0.8f)
+            blob(swirl, x, y - 0.6f * u, 1.25f * u, ow)
+            drawCircle(Color.White, 0.8f * u, Offset(x, y - 0.6f * u), style = Stroke(0.3f * u))
+            drawCircle(Color.White, 0.3f * u, Offset(x, y - 0.6f * u))
+        } else {
+            // Gumdrops
+            val drops = arrayOf(Color(0xFF7FD06A), Color(0xFFFFB03C), Color(0xFFB98CF0))
+            for (k in 0..2) {
+                val gx = x + (k - 1) * 1.5f * u
+                val gy = y + (if (k == 1) -0.5f else 0.3f) * u
+                drawArc(Ink, 180f, 180f, true, Offset(gx - 0.8f * u - ow, gy - 0.9f * u - ow), Size(1.6f * u + 2f * ow, 1.8f * u + 2f * ow))
+                drawArc(drops[k], 180f, 180f, true, Offset(gx - 0.8f * u, gy - 0.9f * u), Size(1.6f * u, 1.8f * u))
+                drawCircle(Color.White.copy(alpha = 0.7f), 0.18f * u, Offset(gx - 0.3f * u, gy - 0.5f * u))
+            }
+        }
+        MapTheme.NIGHT -> if (pick < 0.55f) {
+            // Mushrooms that glow in the dark
+            val glow = Color(0xFF7FF2E0)
+            for (k in 0..1) {
+                val mx = x + (k * 1.7f - 0.85f) * u
+                val my = y + k * 0.4f * u
+                drawCircle(glow.copy(alpha = 0.22f), 1.6f * u, Offset(mx, my - 0.3f * u))
+                slab(Color(0xFFD5DEEC), mx - 0.22f * u, my, 0.44f * u, 0.8f * u, 0.2f * u, ow * 0.8f)
+                drawArc(Ink, 180f, 180f, true, Offset(mx - 0.85f * u - ow, my - 0.75f * u - ow), Size(1.7f * u + 2f * ow, 1.5f * u + 2f * ow))
+                drawArc(glow, 180f, 180f, true, Offset(mx - 0.85f * u, my - 0.75f * u), Size(1.7f * u, 1.5f * u))
+                drawCircle(Color.White, 0.15f * u, Offset(mx - 0.3f * u, my - 0.35f * u))
+            }
+        } else {
+            // A pond with the moon in it
+            val rx = (1.6f + rnd.nextFloat() * 0.9f) * u
+            drawOval(Ink, Offset(x - rx - ow, y - rx * 0.6f - ow), Size(2f * (rx + ow), 1.2f * rx + 2f * ow))
+            drawOval(Color(0xFF1E2F52), Offset(x - rx, y - rx * 0.6f), Size(2f * rx, 1.2f * rx))
+            drawCircle(Color(0xFFFFF6DD), rx * 0.26f, Offset(x - rx * 0.2f, y - rx * 0.05f))
+            drawCircle(Color(0xFF1E2F52), rx * 0.22f, Offset(x - rx * 0.08f, y - rx * 0.12f))
         }
     }
 }

@@ -15,7 +15,10 @@ import kotlin.random.Random
 private const val EXPOSURE_SEC = 11f
 private const val EMERGENCY_SEC = 5f
 private const val LATE_SAFETY = 1.1f
-private const val GRID_STEP = 3f
+private const val GRID_STEP = 2.7f
+
+/** Slack over the engine's own spacing rule, so a chosen spot is never rejected. Two grid steps clear it. */
+private const val SPACING_SLACK = 0.15f
 private const val GRID_MARGIN = 5f
 private const val PUSH_THINK_MS = 300f
 
@@ -28,10 +31,12 @@ private const val RICH_GOLD = 300f
 private const val RICH_THINK_MS = 700f
 
 /**
- * In sudden death a sent unit is as swollen as the waves are, so gold does more as a push than as
- * one more tower. An AI that knows it spends this share of its thinks attacking, however thin its wall.
+ * In sudden death a sent unit is as swollen as the waves are, so a push can end the match where
+ * one more tower cannot. An AI that knows it spends this share of its thinks attacking, however thin
+ * its wall. No more than this: a lane has room for a wall that outlasts the other side's, and the
+ * side that pushed half its gold away is the one that folds first.
  */
-private const val SUDDEN_DEATH_PUSH_CHANCE = 0.5f
+private const val SUDDEN_DEATH_PUSH_CHANCE = 0.2f
 private const val SUDDEN_DEATH_PREP_SEC = 40
 
 /** A push is sized to out-last the defense it is sent at by this much. */
@@ -43,6 +48,20 @@ private const val RAMP_UPTIME = 0.15f
 
 /** A pulse tower hits everything in range, so its damage counts several times over. */
 private const val PULSE_TARGETS = 2.5f
+
+/**
+ * Every tower already firing on a stretch of track makes one more there worth less: single-target
+ * towers mostly shoot what the others have just killed, and even splash runs out of things to hit.
+ * Without this a lane with room to spare fills up with one cheap tower and never upgrades any.
+ */
+private const val CROWDING_SINGLE = 0.15f
+private const val CROWDING_AREA = 0.06f
+
+/** What a Lookout's extra reach is worth against the same percentage of extra damage. */
+private const val RANGE_AURA_WORTH = 0.9f
+
+/** Share of the damage a Veteran can grow into that a new one is credited with before it has a single kill. */
+private const val GROWTH_CREDIT = 0.3f
 
 /**
  * Plays one side of a match. It works only from what a player could see: both lanes, both purses,
@@ -108,6 +127,8 @@ class AiController(
         AiPersonality.BRUISER -> Style(1.1f, 0.15f, 0.3f, 40f, 2, 1.2f)
         AiPersonality.GAMBLER -> Style(0.8f, 0.5f, 0.15f, 0f, 1, 1.4f)
         AiPersonality.TRICKSTER -> Style(1f, 0.25f, 0.35f, 30f, 2, 1f)
+        AiPersonality.AVALANCHE -> Style(1f, 0.2f, 0.3f, 20f, 2, 1.1f)
+        AiPersonality.OPPORTUNIST -> Style(1.05f, 0.2f, 0.35f, 40f, 2, 1.1f)
     }
 
     private var thinkTimerMs = 700f + rng.nextFloat() * 600f
@@ -132,6 +153,9 @@ class AiController(
     private var seenSwarm = 0f
     private var seenHeavy = 0f
     private var seenArmor = 0f
+
+    /** Typical health of what walks this lane now. Knockback does less the heavier the unit. */
+    private var seenHp = 60f
 
     // Grid of spots that are clear of the track. The track never changes, so this is built once.
     private var gridX = FloatArray(0)
@@ -204,6 +228,9 @@ class AiController(
         seenSwarm *= 0.92f
         seenHeavy *= 0.92f
         seenArmor *= 0.92f
+        var hp = 0f
+        for (e in own.incomingEnemies) hp += e.maxHp
+        if (own.incomingEnemies.isNotEmpty()) seenHp += (hp / own.incomingEnemies.size - seenHp) * 0.1f
         for (e in own.incomingEnemies) {
             if (e.type.armor > 0f) seenArmor += 0.5f
             when {
@@ -246,6 +273,7 @@ class AiController(
     private fun towerPower(engine: GameEngine, t: TowerInstance): Float = power(
         t.type, engine.shotDamage(t), t.shots, engine.reloadMs(t), t.splashRadius, t.chains, t.pierce,
         t.slow, t.dotDps, t.stunChance, t.critChance, t.rampMax, t.vulnerability, t.knockback, t.executeBelow,
+        t.deathBlast,
         engine.path.coverage(t.x, t.y, engine.towerReach(t), LaneSpace.WIDTH)
     )
 
@@ -253,7 +281,7 @@ class AiController(
     private fun power(
         type: TroopType, damage: Float, shots: Int, reloadMs: Float, splash: Float, chains: Int, pierce: Int,
         slow: Float, dot: Float, stun: Float, crit: Float, rampMax: Float, curse: Float, knockback: Float,
-        execute: Float, coverage: Float
+        execute: Float, blast: Float, coverage: Float
     ): Float {
         if (!type.isAttacker) return 0f
         var dps = damage * shots * 1000f / reloadMs
@@ -262,16 +290,28 @@ class AiController(
         // is dead before it has ramped at all.
         if (rampMax > 0f) dps *= 1f + rampMax * RAMP_UPTIME
         if (execute > 0f) dps *= 1f + execute
+        // A kill that blows up finishes off the neighbours it has already hurt.
+        if (blast > 0f) dps *= 1f + blast
+        // Cracked armour helps every other tower too, but only against the few units that wear any.
+        if (type.sundersArmor) dps *= 1.1f
         if (splash > 0f) dps *= 1f + splash / 9f
         if (chains > 0) dps *= 1f + 0.5f * chains
         if (pierce > 0) dps *= 1f + 0.35f * pierce
+        // The engine throws a heavy unit back less; by the late rounds every unit is heavy.
+        val budge = 1f / (1f + seenHp / KNOCKBACK_HALF_HP)
         when (type.shot) {
             ShotKind.FROST_PULSE -> dps = dps * PULSE_TARGETS + slow * 45f
             ShotKind.POISON_PULSE -> dps = (dps + dot) * PULSE_TARGETS
-            ShotKind.GUST_PULSE -> dps = dps * PULSE_TARGETS + knockback * 5f
+            ShotKind.GUST_PULSE -> dps = dps * PULSE_TARGETS + knockback * 6.5f * budge
             ShotKind.QUAKE_PULSE -> dps = dps * PULSE_TARGETS + stun * 30f
-            // Burn on a tower that also splashes lands on most of what it touches.
-            else -> dps += dot * (if (splash > 0f) 1.5f else 0.5f)
+            ShotKind.NOVA_PULSE -> dps *= PULSE_TARGETS
+            else -> {
+                // Burn on a tower that also splashes lands on most of what it touches.
+                dps += dot * (if (splash > 0f) 1.5f else 0.5f)
+                // Glue: a slow thrown at a clump. A hook: one unit hauled back, as often as it reloads.
+                dps += slow * 30f * (1f + splash / 9f)
+                dps += knockback * 5.7f * budge * 1000f / reloadMs
+            }
         }
         dps += stun * 14f
         // A curse is worth what it adds to everybody else's damage; guess at a modest lane.
@@ -328,18 +368,23 @@ class AiController(
             val spot = bestSpot(engine, own, type, cover, powers, lateBias) ?: continue
             val gain = if (type.auraRange > 0f) {
                 // A faster-firing tower is worth as much as one that hits that much harder.
-                spot.score * (type.auraDamageBonusPct + type.auraReloadBonusPct) / 100f
+                spot.score * auraWorth(type.auraDamageBonusPct, type.auraReloadBonusPct, type.auraRangeBonusPct) / 100f
             } else {
                 power(
-                    type, type.damage * engine.modifier.damageMultiplier, 1,
-                    type.fireRateMs * engine.modifier.reloadMultiplier,
+                    type, type.damage * engine.modifier.damageMultiplier * (1f + type.killGrowthMaxPct / 100f * GROWTH_CREDIT),
+                    type.shots, type.fireRateMs * engine.modifier.reloadMultiplier,
                     type.splashRadius, type.chainTargets, type.pierce, type.slowFactor, type.dotDamagePerSecond,
                     type.stunChance, type.critChance, type.rampMax, type.vulnerabilityPct / 100f, type.knockback,
-                    type.executeBelowPct / 100f,
+                    type.executeBelowPct / 100f, type.deathBlastPct / 100f,
                     engine.path.coverage(spot.x, spot.y, engine.baseReach(type), LaneSpace.WIDTH)
                 )
             }
-            if (gain > 0f) out.add(Purchase(type, null, spot.x, spot.y, type.cost, gain / type.cost * mixWeight(type)))
+            if (gain <= 0f) continue
+            val crowded = if (type.auraRange > 0f) 1f else {
+                1f + crowding(engine, spot.x, spot.y, engine.baseReach(type), cover) *
+                    (if (hitsMany(type)) CROWDING_AREA else CROWDING_SINGLE)
+            }
+            out.add(Purchase(type, null, spot.x, spot.y, type.cost, gain / crowded / type.cost * mixWeight(type)))
         }
 
         for ((i, t) in own.towers.withIndex()) {
@@ -354,11 +399,15 @@ class AiController(
     private fun upgradeGain(
         engine: GameEngine, own: Battlefield, t: TowerInstance, tier: UpgradeTier, powers: FloatArray, current: Float
     ): Float {
-        val aura = t.auraPct + t.auraReloadPct
+        val aura = auraWorth(t.auraPct, t.auraReloadPct, t.auraRangePct)
         if (aura > 0f) {
             var boosted = 0f
             for ((i, other) in own.towers.withIndex()) {
-                if (other !== t && dist(other.x, other.y, t.x, t.y) <= t.auraRange) boosted += powers[i]
+                if (other === t || dist(other.x, other.y, t.x, t.y) > t.auraRange) continue
+                val full = (t.auraPct > 0f && other.auraBonus >= MAX_DAMAGE_AURA) ||
+                    (t.auraReloadPct > 0f && other.reloadBonus >= MAX_RELOAD_AURA) ||
+                    (t.auraRangePct > 0f && other.rangeBonus >= MAX_RANGE_AURA)
+                if (!full) boosted += ownPower(other, powers[i])
             }
             return boosted * aura * (tier.effectMult - 1f) / 100f
         }
@@ -369,10 +418,43 @@ class AiController(
             t.chains + (if (pierces) 0 else tier.extraChains), t.pierce + (if (pierces) tier.extraChains else 0),
             t.slow * tier.effectMult, t.dotDps * tier.effectMult, t.stunChance * tier.effectMult,
             t.critChance * tier.effectMult, t.rampMax * tier.effectMult, t.vulnerability * tier.effectMult,
-            t.knockback * tier.effectMult, t.executeBelow * tier.effectMult,
+            t.knockback * tier.effectMult, t.executeBelow * tier.effectMult, t.deathBlast * tier.effectMult,
             engine.path.coverage(t.x, t.y, engine.towerReach(t) * tier.rangeMult, LaneSpace.WIDTH)
         )
         return upgraded - current
+    }
+
+    /**
+     * [power] without what Beacons and Overclockers already lend the tower. Boosts add up, they do
+     * not compound: the next one is a share of what the tower does on its own.
+     */
+    private fun ownPower(t: TowerInstance, power: Float): Float = power / ((1f + t.auraBonus) * (1f + t.reloadBonus))
+
+    /** A support tower's boosts as one "percent more damage" figure. */
+    private fun auraWorth(damagePct: Float, reloadPct: Float, rangePct: Float): Float =
+        damagePct + reloadPct + rangePct * RANGE_AURA_WORTH
+
+    private fun hitsMany(type: TroopType): Boolean =
+        type.splashRadius > 0f || type.chainTargets > 0 || type.pierce > 0 || type.shot.isPulse ||
+            type.shots > 1 || type.deathBlastPct > 0f
+
+    /** How many attackers already reach the track that a tower at (x, y) would cover, on average. */
+    private fun crowding(engine: GameEngine, x: Float, y: Float, reach: Float, cover: FloatArray): Float {
+        val path = engine.path
+        val r2 = reach * reach
+        var sum = 0f
+        var points = 0
+        var i = 0
+        while (i < path.pointCount) {
+            val dx = path.xs[i] - x
+            val dy = path.ys[i] - y
+            if (dx * dx + dy * dy <= r2) {
+                sum += cover[i]
+                points++
+            }
+            i += 2
+        }
+        return if (points > 0) sum / points else 0f
     }
 
     /** Values a tower type by what has been attacking this lane. A sloppy AI ignores the mix. */
@@ -380,13 +462,14 @@ class AiController(
         if (rng.nextFloat() >= skill.sharpness) return 0.7f + rng.nextFloat() * 0.6f
         var w = 1f
         if (type.bonusDamageVsFlyerPct > 0f) w *= 0.8f + (seenFlying / 3f).coerceAtMost(1.2f)
-        val hitsMany = type.splashRadius > 0f || type.chainTargets > 0 || type.pierce > 0 || type.shot.isPulse
-        if (hitsMany) w *= 1f + (seenSwarm / 10f).coerceAtMost(0.6f)
+        if (hitsMany(type)) w *= 1f + (seenSwarm / 10f).coerceAtMost(0.6f)
         val hitsHard = type.damage >= 25f && type.splashRadius == 0f
         if (hitsHard || type.rampMax > 0f) w *= 1f + (seenHeavy / 2f).coerceAtMost(0.6f)
         // Armour shrugs off small hits and is cut through by big ones.
         if (type.damage <= 8f && !type.shot.isPulse) w *= 1f - (seenArmor / 6f).coerceAtMost(0.4f)
         if (hitsHard) w *= 1f + (seenArmor / 6f).coerceAtMost(0.4f)
+        // Cracking units open pays off against armour, and against flyers when nothing else answers them.
+        if (type.sundersArmor) w *= 1f + (seenArmor / 8f).coerceAtMost(0.25f) + (seenFlying / 10f).coerceAtMost(0.2f)
         return w
     }
 
@@ -448,7 +531,7 @@ class AiController(
             val y = gridY[g]
             var free = true
             for (t in own.towers) {
-                if (dist(t.x, t.y, x, y) < GameData.MIN_TOWER_SPACING + 0.2f) {
+                if (dist(t.x, t.y, x, y) < GameData.MIN_TOWER_SPACING + SPACING_SLACK) {
                     free = false
                     break
                 }
@@ -468,11 +551,15 @@ class AiController(
         cover: FloatArray, powers: FloatArray, lateBias: Boolean
     ): Float {
         val path = engine.path
-        // Support auras go where the firepower already is.
+        // Support auras go where the firepower already is, and where it can still take a boost.
         if (type.auraRange > 0f) {
             var boosted = 0f
             for ((i, t) in own.towers.withIndex()) {
-                if (dist(t.x, t.y, x, y) <= type.auraRange) boosted += powers[i]
+                if (dist(t.x, t.y, x, y) > type.auraRange) continue
+                val full = (type.auraDamageBonusPct > 0f && t.auraBonus >= MAX_DAMAGE_AURA) ||
+                    (type.auraReloadBonusPct > 0f && t.reloadBonus >= MAX_RELOAD_AURA) ||
+                    (type.auraRangeBonusPct > 0f && t.rangeBonus >= MAX_RANGE_AURA)
+                if (!full) boosted += ownPower(t, powers[i])
             }
             return boosted
         }
@@ -630,18 +717,21 @@ class AiController(
         var areaPower = 0f
         var rapidPower = 0f
         var controlPower = 0f
+        var statusPower = 0f
         var totalPower = 0f
         for (t in foe.towers) {
             val p = towerPower(engine, t)
             totalPower += p
             if (t.type.bonusDamageVsFlyerPct > 0f) antiAir = true
             if (t.splashRadius > 0f || t.chains > 0 || t.pierce > 0 || t.type.shot.isPulse) areaPower += p
-            if (engine.shotDamage(t) <= 10f && !t.type.shot.isPulse) rapidPower += p
+            if (engine.reloadMs(t) <= 400f || (engine.shotDamage(t) <= 10f && !t.type.shot.isPulse)) rapidPower += p
             if (t.slow > 0f || t.stunChance > 0f || t.knockback > 0f) controlPower += p
+            if (t.slow > 0f || t.dotDps > 0f || t.vulnerability > 0f) statusPower += p
         }
         val areaShare = if (totalPower > 0f) areaPower / totalPower else 0f
         val rapidShare = if (totalPower > 0f) rapidPower / totalPower else 0f
         val controlShare = if (totalPower > 0f) controlPower / totalPower else 0f
+        val statusShare = if (totalPower > 0f) statusPower / totalPower else 0f
         val sharp = rng.nextFloat() < skill.sharpness
         val escorting = engine.elapsedMs - lastHeavySendAtMs < 4000f
 
@@ -657,7 +747,7 @@ class AiController(
             var score = WaveGenerator.unitHp(unit) * unit.count / unit.cost * sqrt(unit.speed / 9f)
             if (sharp) {
                 val crowd = unit.count > 1 || unit.spawnOnDeathCount >= 5
-                val escort = unit.healPerSecond > 0f || unit.hasteAuraPct > 0f
+                val escort = unit.healPerSecond > 0f || unit.hasteAuraPct > 0f || unit.cleanseRadius > 0f
                 if (unit.flying) score *= if (antiAir) 0.8f else 2f
                 if (crowd) score *= if (areaShare < 0.25f) 1.6f else 0.6f
                 if (escort) score *= if (escorting) 2.2f else 0.6f
@@ -667,6 +757,12 @@ class AiController(
                 if (unit.controlImmune) score *= 1f + controlShare * 1.5f
                 if (unit.phaseMs > 0L) score *= 1.3f
                 if (unit.regenPerSecond > 0f) score *= if (totalPower < 80f) 1.5f else 1.1f
+                // A bubble wastes slow, heavy shots and is gone in a blink under rapid fire.
+                if (unit.shieldHits > 0) score *= 1.5f - rapidShare
+                if (unit.cleanseRadius > 0f) score *= 1f + statusShare * 1.5f
+                if (unit.jamOnDeathMs > 0L) score *= 1.2f
+                // Lives are what a push is for: a unit that takes many for its size is worth more.
+                if (unit.livesDamage >= 4 && unit.maxHp < 100f) score *= 1.3f
             } else {
                 score = 0.5f + rng.nextFloat()
             }
@@ -692,9 +788,11 @@ class AiController(
         AiPersonality.GAMBLER -> if (unit === fancy) 2.5f else 1f
         AiPersonality.TRICKSTER -> when {
             unit === lastSent -> 0.35f // never the same thing twice in a row
-            unit.healPerSecond > 0f || unit.hasteAuraPct > 0f || unit.phaseMs > 0L || unit.flying -> 1.6f
+            unit.healPerSecond > 0f || unit.hasteAuraPct > 0f || unit.phaseMs > 0L || unit.flying ||
+                unit.jamOnDeathMs > 0L || unit.cleanseRadius > 0f || unit.shieldHits > 0 -> 1.6f
             else -> 1f
         }
+        AiPersonality.OPPORTUNIST -> if (unit.stealsIncomeSec > 0f || unit.speed >= 11f) 1.4f else 1f
         else -> 1f
     }
 
@@ -711,6 +809,11 @@ class AiController(
             // Scraps most of the time, then everything it has.
             AiPersonality.GAMBLER -> if (pushRoll < 0.6f) 40f + pushRoll * 60f else 380f + pushRoll * 320f
             AiPersonality.TRICKSTER -> 150f + pushRoll * 150f
+            // Every push a step up from the one before.
+            AiPersonality.AVALANCHE -> 60f + pushRoll * 40f + 40f * pushCount.coerceAtMost(12)
+            // Half price while the other side has just spent itself dry.
+            AiPersonality.OPPORTUNIST ->
+                (200f + pushRoll * 140f + engine.round * 6f) * (if (foe.gold < engine.incomePerSec(foe) * 3f) 0.5f else 1f)
         }
         // The hardest AI does not push by habit: it works out what the defense in front of it can
         // absorb and saves until it can send more than that. The impatient ones only bother now and then.
@@ -783,9 +886,13 @@ class AiController(
             if (type.chainTargets > 0) dps *= 1f + 0.5f * type.chainTargets
             if (type.pierce > 0) dps *= 1f + 0.35f * type.pierce
             dps *= 1f + type.executeBelowPct / 100f + type.bountyBonusPct / 400f
+            dps *= 1f + type.deathBlastPct / 100f + type.killGrowthMaxPct / 100f * GROWTH_CREDIT
+            if (type.sundersArmor) dps *= 1.1f
+            if (type.shot == ShotKind.NOVA_PULSE) dps *= PULSE_TARGETS
             dps += type.dotDamagePerSecond * PULSE_TARGETS + type.slowFactor * 45f + type.stunChance * 14f
             dps += type.knockback * 5f + type.vulnerabilityPct * 0.6f
-            dps += type.incomeBonusPerSecond * 12f + (type.auraDamageBonusPct + type.auraReloadBonusPct) * 0.9f
+            dps += type.incomeBonusPerSecond * 12f +
+                (type.auraDamageBonusPct + type.auraReloadBonusPct + type.auraRangeBonusPct * RANGE_AURA_WORTH) * 0.9f
             dps += type.livesPerMinute * 3f
             return dps / type.cost
         }

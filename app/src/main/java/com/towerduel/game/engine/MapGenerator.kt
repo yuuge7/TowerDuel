@@ -4,6 +4,8 @@ import com.towerduel.game.data.GameData
 import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.MapTheme
+import kotlin.math.PI
+import kotlin.math.sin
 import kotlin.random.Random
 
 private const val START_X = -8f
@@ -41,10 +43,13 @@ object MapGenerator {
     /** A fresh map, or null if no candidate passed the checks (callers fall back to a named map). */
     fun generate(rng: Random): MapDef? {
         repeat(ATTEMPTS) {
-            val points = when (rng.nextInt(4)) {
+            val points = when (rng.nextInt(7)) {
                 0 -> zigzag(rng)
                 1 -> serpentine(rng)
                 2 -> hairpin(rng)
+                3 -> wave(rng)
+                4 -> loop(rng)
+                5 -> spiral(rng)
                 else -> remix(rng)
             }
             if (isPlayable(points)) {
@@ -161,6 +166,56 @@ object MapGenerator {
         )
     }
 
+    /** A sine wave across the lane, two to three crests of it. */
+    private fun wave(rng: Random): List<Pair<Float, Float>> {
+        val crests = between(rng, 2f, 3f)
+        val height = between(rng, 15f, 20f)
+        val mid = LaneSpace.HEIGHT / 2f + between(rng, -2f, 2f)
+        val phase = if (rng.nextBoolean()) 0f else PI.toFloat()
+        val from = 4f
+        val to = END_X - 4f
+        val points = ArrayList<Pair<Float, Float>>()
+        points.add(START_X to mid)
+        var x = from
+        while (x < to) {
+            val angle = (x - from) / (to - from) * crests * 2f * PI.toFloat() + phase
+            points.add(x to mid + height * sin(angle))
+            x += 6f
+        }
+        points.add(END_X to mid + height * sin(crests * 2f * PI.toFloat() + phase))
+        return points
+    }
+
+    /** A straight run with one full loop thrown in: the track crosses itself once. */
+    private fun loop(rng: Random): List<Pair<Float, Float>> {
+        // The loop is laid out for a radius of 14.5 around (cx, cy) and scaled by k.
+        val k = between(rng, 0.85f, 1f)
+        val cx = between(rng, 44f, 58f)
+        val cy = between(rng, 9.5f + 14f * k, 52.5f - 28f * k)
+        val run = cy + 18f * k
+        return listOf(
+            START_X to run, cx - 32f to run, cx - 8f to run,
+            cx + 6f * k to cy + 16f * k, cx + 15f * k to cy + 7f * k, cx + 14f * k to cy - 6f * k,
+            cx + 4f * k to cy - 14f * k, cx - 8f * k to cy - 13f * k, cx - 15f * k to cy - 4f * k,
+            cx - 13f * k to cy + 9f * k, cx - 6f * k to cy + 20f * k, cx + 4f * k to cy + 28f * k,
+            cx + 20f to cy + 28f * k, END_X - 7f to cy + 24f * k, END_X to cy + 16f * k
+        )
+    }
+
+    /** In along the top, around the edge and inwards: the keep stands in the middle of the lane. */
+    private fun spiral(rng: Random): List<Pair<Float, Float>> {
+        val top = between(rng, 10f, 12f)
+        val bottom = between(rng, 50f, 52f)
+        val right = between(rng, 80f, 86f)
+        val left = between(rng, 13f, 17f)
+        val mid = (top + bottom) / 2f + between(rng, -2f, 2f)
+        val end = between(rng, 50f, 62f)
+        return listOf(
+            START_X to top, 40f to top, right - 8f to top, right to top + 6f, right to bottom - 6f, right - 8f to bottom,
+            left + 8f to bottom, left to bottom - 6f, left to mid + 6f, left + 7f to mid, 40f to mid, end to mid
+        )
+    }
+
     /** A named map with its inner control points nudged: the same idea, a different track. */
     private fun remix(rng: Random): List<Pair<Float, Float>> {
         val base = GameData.MAPS.random(rng).pathPoints
@@ -179,6 +234,9 @@ object MapGenerator {
             MapTheme.EMBER -> listOf("Ashen", "Magma", "Scorched", "Ember")
             MapTheme.SWAMP -> listOf("Murky", "Toadstool", "Reedy", "Mossy")
             MapTheme.AUTUMN -> listOf("Rusty", "Harvest", "Amberleaf", "Pumpkin")
+            MapTheme.CRYSTAL -> listOf("Amethyst", "Glimmer", "Quartz", "Prism")
+            MapTheme.CANDY -> listOf("Sugar", "Toffee", "Jellybean", "Sherbet")
+            MapTheme.NIGHT -> listOf("Midnight", "Starlit", "Owl", "Lantern")
         }.random(rng)
         val second = listOf("Trail", "Run", "Crossing", "Gap", "Twist", "Reach", "Hollow", "Way").random(rng)
         return "$first $second"

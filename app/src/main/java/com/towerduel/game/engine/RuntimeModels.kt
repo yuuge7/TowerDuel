@@ -10,6 +10,7 @@ private const val MAX_SLOW = 0.8f
 private const val MAX_STUN_CHANCE = 0.9f
 private const val MAX_CRIT_CHANCE = 0.9f
 private const val MAX_EXECUTE = 0.4f
+private const val MAX_DEATH_BLAST = 0.9f
 
 class TowerInstance(
     val instanceId: Long,
@@ -33,6 +34,12 @@ class TowerInstance(
     /** Fraction of extra fire rate from Overclockers in range; refreshed the same way. */
     var reloadBonus = 0f
 
+    /** Fraction of extra reach from Lookouts in range; refreshed the same way. */
+    var rangeBonus = 0f
+
+    /** A Jammer popped nearby: this tower does not fire until then. */
+    var jammedUntilMs = -100_000f
+
     // Render-only state: where the barrel points and when it last kicked.
     var aimAngle = -1.5708f
     var lastFiredAtMs = -100_000f
@@ -50,13 +57,14 @@ class TowerInstance(
     var reloadMs = type.fireRateMs.toFloat(); private set
     var splashRadius = type.splashRadius; private set
     var chains = type.chainTargets; private set
-    var shots = 1; private set
+    var shots = type.shots; private set
     var slow = type.slowFactor; private set
     var stunChance = type.stunChance; private set
     var dotDps = type.dotDamagePerSecond; private set
     var income = type.incomeBonusPerSecond; private set
     var auraPct = type.auraDamageBonusPct; private set
     var auraReloadPct = type.auraReloadBonusPct; private set
+    var auraRangePct = type.auraRangeBonusPct; private set
     var auraRange = type.auraRange; private set
     var livesPerMinute = type.livesPerMinute; private set
     var pierce = type.pierce; private set
@@ -66,6 +74,13 @@ class TowerInstance(
     var knockback = type.knockback; private set
     var executeBelow = type.executeBelowPct / 100f; private set
     var bountyBonus = type.bountyBonusPct / 100f; private set
+    var killGrowth = type.killGrowthPct / 100f; private set
+    var killGrowthMax = type.killGrowthMaxPct / 100f; private set
+    var deathBlast = type.deathBlastPct / 100f; private set
+    var blastRadius = type.deathBlastRadius; private set
+
+    /** Fraction of extra damage a Veteran has earned from its kills so far. */
+    val killBonus: Float get() = minOf(kills * killGrowth, killGrowthMax)
 
     // A beam ramps up while it stays on one unit and starts over on the next.
     var rampTarget: EnemyUnit? = null
@@ -89,12 +104,17 @@ class TowerInstance(
         knockback *= tier.effectMult
         executeBelow = (executeBelow * tier.effectMult).coerceAtMost(MAX_EXECUTE)
         bountyBonus *= tier.effectMult
+        killGrowth *= tier.effectMult
+        killGrowthMax *= tier.effectMult
+        deathBlast = (deathBlast * tier.effectMult).coerceAtMost(MAX_DEATH_BLAST)
+        blastRadius *= tier.splashMult
         slow = (slow * tier.effectMult).coerceAtMost(MAX_SLOW)
         stunChance = (stunChance * tier.effectMult).coerceAtMost(MAX_STUN_CHANCE)
         dotDps *= tier.effectMult
         income *= tier.effectMult
         auraPct *= tier.effectMult
         auraReloadPct *= tier.effectMult
+        auraRangePct *= tier.effectMult
         livesPerMinute *= tier.effectMult
         // A support tower's "range" is its aura.
         if (type.auraRange > 0f) auraRange *= tier.rangeMult else range *= tier.rangeMult
@@ -144,6 +164,18 @@ class EnemyUnit(
     /** Damage shrugged off (as a fraction) thanks to a Warder nearby, and until when. */
     var ward = 0f
     var wardUntilMs = 0f
+
+    /** Damage of the shots already in the air for this unit; enough of it and nobody else needs to aim here. */
+    var pendingDamage = 0f
+
+    /** Hits a Bubbler's bubble can still swallow. */
+    var shieldLeft = type.shieldHits
+
+    /** Cracked open by a Ballista: its armour and damage resistance no longer count. */
+    var sundered = false
+
+    /** When a Queen lays her next unit. */
+    var nextSpawnAtMs = bornAtMs + type.spawnEveryMs
 }
 
 /** A wave or send unit waiting for its turn to step onto the lane. */
@@ -181,8 +213,9 @@ class Projectile(
 }
 
 enum class FxKind {
-    POP, HIT, EXPLOSION, BOLT, TRACER, BEAM, FLAME, FROST_RING, POISON_CLOUD, GUST_RING, QUAKE_RING,
-    GOLD_TEXT, LIFE_TEXT, LIFE_GAIN, CRIT, EXECUTE, DUST, SPARKLE, HEAL, HASTE, WARD
+    POP, HIT, EXPLOSION, BOLT, TRACER, BEAM, FLAME, FROST_RING, POISON_CLOUD, GUST_RING, QUAKE_RING, NOVA_RING,
+    GOLD_TEXT, GOLD_LOSS, LIFE_TEXT, LIFE_GAIN, CRIT, EXECUTE, DUST, SPARKLE, HEAL, HASTE, WARD, CLEANSE,
+    JAM_RING, BUBBLE_HIT
 }
 
 /** A short-lived visual; carries no gameplay effect. Positions and [size] are in lane units. */

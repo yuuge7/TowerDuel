@@ -41,6 +41,7 @@ import com.towerduel.game.data.GameData
 import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.EnemySendType
+import com.towerduel.game.data.ShotKind
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.LanePath
 import com.towerduel.game.ui.GameViewModel
@@ -242,8 +243,12 @@ private fun RosterCard(roster: List<EnemySendType>) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)) {
             Text("UNITS THIS MATCH", color = Sun, style = MaterialTheme.typography.labelSmall)
             Spacer(Modifier.height(4.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                for (unit in roster) UnitPortrait(unit, Modifier.size(38.dp))
+            // Two rows, so a full roster still gets portraits big enough to tell apart.
+            for ((i, row) in roster.chunked((roster.size + 1) / 2).withIndex()) {
+                if (i > 0) Spacer(Modifier.height(5.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    for (unit in row) UnitPortrait(unit, Modifier.size(38.dp))
+                }
             }
         }
     }
@@ -257,14 +262,17 @@ private fun StatBars(troop: TroopType) {
             troop.incomeBonusPerSecond > 0f -> "+${troop.incomeBonusPerSecond.roundToInt()} gold per second"
             troop.livesPerMinute > 0f -> "+1 life every ${(60f / troop.livesPerMinute).roundToInt()} seconds"
             troop.auraReloadBonusPct > 0f -> "+${troop.auraReloadBonusPct.roundToInt()}% fire rate to nearby towers"
+            troop.auraRangeBonusPct > 0f -> "+${troop.auraRangeBonusPct.roundToInt()}% reach to nearby towers"
             else -> "+${troop.auraDamageBonusPct.roundToInt()}% damage to nearby towers"
         }
         Text(text, color = Sun, style = MaterialTheme.typography.labelSmall)
         return
     }
     // Damage per second, counting what the tower does besides the plain hit: crits, a beam's
-    // ramp, splash, chains, cuts, burn, and for the pulse towers the effect that is their point.
+    // ramp, splash, chains, cuts, burn, blasts, and for the pulse towers the effect that is their point.
     var power = troop.baseDps
+    if (troop.shot == ShotKind.NOVA_PULSE) power *= 2.5f
+    power *= 1f + troop.deathBlastPct / 100f + troop.killGrowthMaxPct / 300f
     if (troop.critChance > 0f) power *= 1f + troop.critChance * (troop.critMultiplier - 1f)
     if (troop.rampMax > 0f) power *= 1f + troop.rampMax * 0.4f
     if (troop.splashRadius > 0f) power *= 1f + troop.splashRadius / 9f

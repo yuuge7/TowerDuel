@@ -238,7 +238,9 @@ fun HudPill(
 fun TowerPortrait(type: TroopType, modifier: Modifier = Modifier, level: Int = 0) {
     Canvas(modifier) {
         val u = size.minDimension / 8.6f
-        drawTower(type, level, if (level >= 2) 2 else 1, size.width / 2f, size.height / 2f - 0.2f * u, u, -0.6f, 10_000f, 0f)
+        // As many barrels (or rockets) as a tower of this level really has.
+        val shots = type.shots + type.upgrades.take(level).sumOf { it.extraShots }
+        drawTower(type, level, shots, size.width / 2f, size.height / 2f - 0.2f * u, u, -0.6f, 10_000f, 0f)
     }
 }
 
@@ -246,19 +248,25 @@ fun TowerPortrait(type: TroopType, modifier: Modifier = Modifier, level: Int = 0
 fun UnitPortrait(type: EnemySendType, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         // How far the sprite reaches from its ground point, in body radii: up to whatever it
-        // wears (crown, healer badge) or how high it hovers, down to its shadow, and sideways.
+        // wears (crown, healer badge, halo, fuse) or how high it hovers, down to its shadow, and sideways.
+        val bubble = type.shieldHits > 0
         val up = when {
             type.flying -> 2.4f
             type.healPerSecond > 0f -> 2.1f
-            type.id == "boss" -> 1.6f
+            type.cleanseRadius > 0f || type.jamOnDeathMs > 0L || type.id == "sapper" -> 1.8f
+            type.id == "boss" || bubble -> 1.6f
+            type.id == "warlord" || type.id == "queen" -> 1.4f
             else -> 1.15f
         }
-        val down = 1.2f
-        val across = if (type.flying) 4f else 2.4f
+        val down = if (bubble) 1.5f else 1.2f
+        val across = if (type.flying) 4f else if (bubble) 3.1f else if (type.spawnOnDeathId == "hydra_head") 2.9f else 2.4f
         val u = minOf(size.height / ((up + down) * type.radius), size.width / (across * type.radius))
         val cx = size.width / 2f
         val ground = (size.height - (up + down) * type.radius * u) / 2f + up * type.radius * u
         drawUnitShadow(type, cx, ground, u)
-        drawUnit(type, cx, ground, u, 1f, 0f, 0f, 0, hpFrac = 1f, flash = 0f, slowed = false, stunned = false, poisoned = false)
+        drawUnit(
+            type, cx, ground, u, 1f, 0f, 0f, 0, hpFrac = 1f, flash = 0f, slowed = false, stunned = false, poisoned = false,
+            shielded = bubble
+        )
     }
 }
