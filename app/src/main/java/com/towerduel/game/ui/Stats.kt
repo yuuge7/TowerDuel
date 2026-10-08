@@ -23,7 +23,9 @@ class MatchRecord(
     /** The first match of a cup the player has just entered. */
     val cupEntered: Boolean = false,
     /** The final of a cup, won. */
-    val cupWon: Boolean = false
+    val cupWon: Boolean = false,
+    /** Played with friends over Bluetooth. It adds to the totals, not to the record against the AI. */
+    val friendMatch: Boolean = false
 )
 
 data class DifficultyRecord(val wins: Int = 0, val losses: Int = 0) {
@@ -54,7 +56,9 @@ data class LifetimeStats(
     val rivalWins: Map<String, Int> = emptyMap(),
     val teamWins: Int = 0,
     val cupsEntered: Int = 0,
-    val cupsWon: Int = 0
+    val cupsWon: Int = 0,
+    val friendMatches: Int = 0,
+    val friendWins: Int = 0
 ) {
     val matches: Int get() = wins + losses + draws
 
@@ -62,6 +66,7 @@ data class LifetimeStats(
     val winRate: Float? get() = if (wins + losses == 0) null else wins / (wins + losses).toFloat()
 
     operator fun plus(match: MatchRecord): LifetimeStats {
+        if (match.friendMatch) return plusFriendMatch(match)
         val won = match.outcome == MatchOutcome.PLAYER_WIN
         val lost = match.outcome == MatchOutcome.AI_WIN
         // A draw neither extends nor breaks a streak.
@@ -96,6 +101,29 @@ data class LifetimeStats(
             teamWins = teamWins + if (won && match.teamMatch) 1 else 0,
             cupsEntered = cupsEntered + if (match.cupEntered) 1 else 0,
             cupsWon = cupsWon + if (match.cupWon) 1 else 0
+        )
+    }
+
+    /**
+     * A match with friends counts for what was done in it (pops, gold, time, the towers picked)
+     * and is tallied on its own. The win rate, the streak and the per-difficulty record stay a
+     * record against the AI.
+     */
+    private fun plusFriendMatch(match: MatchRecord): LifetimeStats {
+        val picks = HashMap(towerPicks)
+        for (id in match.towerIds) picks[id] = (picks[id] ?: 0) + 1
+        return copy(
+            pops = pops + match.pops,
+            unitsSent = unitsSent + match.unitsSent,
+            goldEarned = goldEarned + match.goldEarned,
+            towersBuilt = towersBuilt + match.towersBuilt,
+            livesLost = livesLost + match.livesLost,
+            secondsPlayed = secondsPlayed + match.seconds,
+            bestRound = maxOf(bestRound, match.round),
+            mostPops = maxOf(mostPops, match.pops),
+            towerPicks = picks,
+            friendMatches = friendMatches + 1,
+            friendWins = friendWins + if (match.outcome == MatchOutcome.PLAYER_WIN) 1 else 0
         )
     }
 }

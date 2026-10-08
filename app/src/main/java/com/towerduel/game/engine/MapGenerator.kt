@@ -5,7 +5,6 @@ import com.towerduel.game.data.LaneSpace
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.MapTheme
 import kotlin.math.PI
-import kotlin.math.sin
 import kotlin.random.Random
 
 private const val START_X = -8f

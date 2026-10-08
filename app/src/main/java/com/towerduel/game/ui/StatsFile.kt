@@ -62,6 +62,8 @@ object StatsFile {
             .put("teamWins", stats.teamWins)
             .put("cupsEntered", stats.cupsEntered)
             .put("cupsWon", stats.cupsWon)
+            .put("friendMatches", stats.friendMatches)
+            .put("friendWins", stats.friendWins)
 
         return JSONObject()
             .put("app", APP)
@@ -112,6 +114,7 @@ object StatsFile {
 
         val streak = count("streak")
         val cupsWon = count("cupsWon")
+        val friendWins = count("friendWins")
         val stats = LifetimeStats(
             wins = count("wins"),
             losses = count("losses"),
@@ -134,7 +137,10 @@ object StatsFile {
             teamWins = count("teamWins"),
             // A cup cannot be won without being entered, whatever the file says.
             cupsEntered = maxOf(count("cupsEntered"), cupsWon),
-            cupsWon = cupsWon
+            cupsWon = cupsWon,
+            // Nor can more matches be won than were played.
+            friendMatches = maxOf(count("friendMatches"), friendWins),
+            friendWins = friendWins
         )
         return StatsExport(stats, root.optString("exportedAt").takeIf { it.isNotEmpty() })
     }

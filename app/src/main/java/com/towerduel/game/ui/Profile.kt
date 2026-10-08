@@ -44,6 +44,15 @@ class ProfileStore(context: Context) {
         prefs.edit().putInt(KEY_DIFFICULTY, difficulty.ordinal).apply()
     }
 
+    /** What the player calls themselves in a game with friends; empty until they have said. */
+    var playerName by mutableStateOf(prefs.getString(KEY_NAME, "") ?: "")
+        private set
+
+    fun rememberName(name: String) {
+        playerName = name
+        prefs.edit().putString(KEY_NAME, name).apply()
+    }
+
     fun rememberMode(mode: GameMode) {
         lastMode = mode
         prefs.edit().putInt(KEY_MODE, mode.ordinal).apply()
@@ -115,7 +124,9 @@ class ProfileStore(context: Context) {
         rivalWins = GameData.RIVALS.associate { it.id to prefs.getInt(KEY_RIVAL + it.id, 0) }.filterValues { it > 0 },
         teamWins = prefs.getInt(KEY_TEAM_WINS, 0),
         cupsEntered = prefs.getInt(KEY_CUPS_ENTERED, 0),
-        cupsWon = prefs.getInt(KEY_CUPS_WON, 0)
+        cupsWon = prefs.getInt(KEY_CUPS_WON, 0),
+        friendMatches = prefs.getInt(KEY_FRIEND_MATCHES, 0),
+        friendWins = prefs.getInt(KEY_FRIEND_WINS, 0)
     )
 
     private fun save(editor: SharedPreferences.Editor, s: LifetimeStats) {
@@ -137,6 +148,8 @@ class ProfileStore(context: Context) {
             .putInt(KEY_TEAM_WINS, s.teamWins)
             .putInt(KEY_CUPS_ENTERED, s.cupsEntered)
             .putInt(KEY_CUPS_WON, s.cupsWon)
+            .putInt(KEY_FRIEND_MATCHES, s.friendMatches)
+            .putInt(KEY_FRIEND_WINS, s.friendWins)
         for ((difficulty, record) in s.byDifficulty) {
             editor.putInt(KEY_WINS + "_" + difficulty.name, record.wins)
             editor.putInt(KEY_LOSSES + "_" + difficulty.name, record.losses)
@@ -166,6 +179,9 @@ class ProfileStore(context: Context) {
         const val KEY_TEAM_WINS = "team_wins"
         const val KEY_CUPS_ENTERED = "cups_entered"
         const val KEY_CUPS_WON = "cups_won"
+        const val KEY_FRIEND_MATCHES = "friend_matches"
+        const val KEY_FRIEND_WINS = "friend_wins"
+        const val KEY_NAME = "player_name"
         const val KEY_DIFFICULTY = "difficulty"
         const val KEY_MODE = "mode"
         const val KEY_CUP = "cup"

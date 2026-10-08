@@ -25,6 +25,8 @@ class StatsFileTest {
             MatchOutcome.PLAYER_WIN, Difficulty.MEDIUM, listOf("sentry", "bomb"), 280, 15, 200, 40, 6000, 8, 30,
             teamMatch = true, cupEntered = true, cupWon = true
         )
+        stats += MatchRecord(MatchOutcome.PLAYER_WIN, Difficulty.MEDIUM, listOf("sentry"), 200, 11, 90, 15, 3000, 6, 20, friendMatch = true)
+        stats += MatchRecord(MatchOutcome.AI_WIN, Difficulty.MEDIUM, listOf("bomb"), 180, 9, 70, 10, 2500, 5, 100, friendMatch = true)
         return stats
     }
 
@@ -39,6 +41,8 @@ class StatsFileTest {
         assertEquals(1, read.stats.teamWins)
         assertEquals(1, read.stats.cupsEntered)
         assertEquals(1, read.stats.cupsWon)
+        assertEquals(2, read.stats.friendMatches)
+        assertEquals(1, read.stats.friendWins)
     }
 
     @Test
@@ -50,6 +54,7 @@ class StatsFileTest {
         assertEquals(0, read.stats.teamWins)
         assertEquals(0, read.stats.cupsEntered)
         assertEquals(0, read.stats.cupsWon)
+        assertEquals(0, read.stats.friendMatches)
     }
 
     @Test
@@ -72,7 +77,7 @@ class StatsFileTest {
     fun missingAndImpossibleNumbersAreRepaired() {
         val read = StatsFile.decode(
             """{"app": "TowerDuel", "format": 1, "stats": {
-                "wins": 4, "losses": -7, "streak": 5, "bestStreak": 2, "goldEarned": -1, "cupsWon": 3, "cupsEntered": 1,
+                "wins": 4, "losses": -7, "streak": 5, "bestStreak": 2, "goldEarned": -1, "cupsWon": 3, "cupsEntered": 1, "friendWins": 4,
                 "byDifficulty": {"HARD": {"wins": 4, "losses": -2}, "NIGHTMARE": {"wins": 9}},
                 "towerPicks": {"sentry": 3, "bomb": 0, "frost": -4}
             }}"""
@@ -85,6 +90,7 @@ class StatsFileTest {
         assertEquals(5, stats.bestStreak)
         assertEquals(0L, stats.goldEarned)
         assertEquals(3, stats.cupsEntered)
+        assertEquals(4, stats.friendMatches)
         assertEquals(mapOf(Difficulty.HARD to DifficultyRecord(4, 0)), stats.byDifficulty)
         assertEquals(mapOf("sentry" to 3), stats.towerPicks)
         assertNull(read.exportedAt)

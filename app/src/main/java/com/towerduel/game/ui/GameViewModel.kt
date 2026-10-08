@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.towerduel.game.data.AiPersonality
@@ -18,15 +19,20 @@ import com.towerduel.game.data.GameMode
 import com.towerduel.game.data.MapDef
 import com.towerduel.game.data.MatchModifier
 import com.towerduel.game.data.Rival
+import com.towerduel.game.data.RivalLines
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.engine.AiController
 import com.towerduel.game.engine.Battlefield
+import com.towerduel.game.engine.Command
 import com.towerduel.game.engine.GameEngine
 import com.towerduel.game.engine.MapGenerator
 import com.towerduel.game.engine.MatchOutcome
 import com.towerduel.game.engine.PlaceResult
 import com.towerduel.game.engine.SendResult
 import com.towerduel.game.engine.SoundCue
+import com.towerduel.game.net.BluetoothTransport
+import com.towerduel.game.net.MatchSession
+import com.towerduel.game.net.MatchSetup
 import com.towerduel.game.ui.audio.SoundFx
 import com.towerduel.game.ui.render.Ghost
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +62,15 @@ private const val RIVAL_GREETING_MS = 1200f
 private const val RIVAL_LINE_MS = 3400f
 private const val RIVAL_QUIET_MS = 11_000f
 private const val RIVAL_TALK_LIVES = 8
+
+/** The unit that stands in for a friend's face, by the seat they sit in. */
+private val FRIEND_FACES = listOf("grunt", "lancer", "runner", "bubbler")
+private val FRIEND_LINES = RivalLines(emptyList(), emptyList(), emptyList(), emptyList(), win = "Good game.", lose = "Good game.")
+
+/** The release installed on this phone, as the system knows it: the version code CI gave it, or 1 for a local build. */
+private fun installedBuild(app: Application): Int = runCatching {
+    PackageInfoCompat.getLongVersionCode(app.packageManager.getPackageInfo(app.packageName, 0)).toInt()
+}.getOrDefault(0)
 
 /** Stable for Compose: everything a screen reads from it is snapshot state. */
 @Stable
@@ -139,6 +154,39 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private class AiSeat(val ai: AiController, val own: Battlefield, val foe: Battlefield)
     private var aiSeats: List<AiSeat> = emptyList()
 
+    // ---- Friends ----
+    /** The lobby, the links and the draft of a game with friends. */
+    val friends = Friends(BluetoothTransport(app), installedBuild(app), viewModelScope, ::setUpFriendsDraft, ::startFriendsMatch)
+
+    /** The friends match being played. It, not this class, steps the engine and runs the bots. */
+    private var session: MatchSession? = null
+
+    /** True from the draft of a friends match until its result has been left behind. */
+    var online by mutableStateOf(false)
+        private set
+
+    /** The seat the player on this phone holds: 0, unless they joined somebody else's match. */
+    var localSeat = 0
+        private set
+    private var sessionNotice: String? = null
+
+    /** The player's own seat in [eng], whichever lane it is on. */
+    fun myField(eng: GameEngine): Battlefield = eng.seat(localSeat) ?: eng.playerField
+
+    /** The first seat of the lane the player attacks. */
+    fun foeLane(eng: GameEngine): Battlefield = eng.foeOf(myField(eng))
+
+    /** How [eng]'s match came out for the player: PLAYER_WIN means their side won, on either lane. */
+    fun outcomeOf(eng: GameEngine): MatchOutcome = eng.outcomeFor(myField(eng))
+
+    /** Whose phone a friends match has been waiting on for a while, if any. Read it under observeFrame(). */
+    val waitingFor: String? get() = session?.waitingFor
+
+    /** One line on who [who] is: a friend, or which kind of bot. */
+    fun describe(who: Rival): String =
+        if (who.id.isEmpty()) "A friend, on their own phone."
+        else "${selectedDifficulty.label} ${who.personality.label}. ${who.personality.blurb}"
+
     private var frame by mutableIntStateOf(0)
 
     /**
@@ -171,6 +219,9 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun rollNewMatchSetup(difficulty: Difficulty, mode: GameMode = selectedMode) {
+        // Whatever game with friends came before is over, however it ended.
+        session = null
+        online = false
         selectedDifficulty = difficulty
         matchMode = mode
         // A cup's final is played a step harder than the player chose; that is not a new choice to remember.
@@ -247,6 +298,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (rivalSeat != null) seats.add(AiSeat(AiController((rival2 ?: rival).personality, selectedDifficulty), rivalSeat, eng.playerField))
         if (allySeat != null) seats.add(AiSeat(AiController((ally ?: rival).personality, selectedDifficulty), allySeat, eng.aiField))
         aiSeats = seats
+        session = null
+        online = false
+        localSeat = 0
+        resetMatchUi(eng)
+    }
+
+    private fun resetMatchUi(eng: GameEngine) {
         rivalLine = null
         rivalGreeted = false
         rivalPushed = false
@@ -262,6 +320,70 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         lastFrameNanos = 0L
         accumulator = 0f
         resultRecorded = false
+        sessionNotice = null
+    }
+
+    // ---- A match with friends ---------------------------------------------------
+
+    /** The host has rolled a match: what this seat drafts from, and who else is at the table. */
+    private fun setUpFriendsDraft(setup: MatchSetup, seat: Int) {
+        fun towers(ids: List<String>) = ids.mapNotNull { id -> GameData.TROOPS.firstOrNull { it.id == id } }
+        fun face(index: Int): Rival? {
+            val who = setup.seats[index] ?: return null
+            if (!who.human) return GameData.RIVALS.firstOrNull { it.id == who.rivalId }
+            return Rival("", who.name, AiPersonality.BALANCED, FRIEND_FACES[index % FRIEND_FACES.size], FRIEND_LINES)
+        }
+        online = true
+        localSeat = seat
+        session = null
+        matchMode = if (setup.team) GameMode.TEAM else GameMode.DUEL
+        selectedDifficulty = setup.botDifficulty
+        offeredTroops = towers(setup.seats[seat]?.towers.orEmpty())
+        pickedTroops = emptyList()
+        rules = setup.rules
+        modifier = setup.modifier
+        roster = setup.roster
+        map = setup.map
+        // Seats 0 and 1 share a lane, 2 and 3 the other: the seat beside this one is the ally, the other two the rivals.
+        val across = if (seat < 2) 2 else 0
+        rival = face(across) ?: GameData.RIVALS.first()
+        rival2 = face(across + 1)
+        ally = face(seat xor 1)
+        allyDraft = setup.seats[seat xor 1]?.takeIf { !it.human }?.let { towers(it.towers) }.orEmpty()
+    }
+
+    /** The player has picked their towers for a friends match. It begins when everybody has. */
+    fun readyUp() {
+        if (draftProblem != null) return
+        friends.ready(offeredTroops.filter { it in pickedTroops }.map { it.id })
+    }
+
+    /** Everybody has picked: the match is on, and [match] runs it. */
+    private fun startFriendsMatch(match: MatchSession) {
+        val eng = match.engine
+        session = match
+        online = true
+        localSeat = match.localSeat
+        aiSeats = emptyList()
+        pickedTroops = myField(eng).draftedTroops
+        engine = eng
+        resetMatchUi(eng)
+    }
+
+    /** The game with friends fell apart before its match began (the host closed it, the link went). */
+    fun friendsGone() {
+        session = null
+        online = false
+        selectedDifficulty = profile.lastDifficulty
+    }
+
+    /** Done looking at a friends match's result: back to the lobby, if there still is one. */
+    fun leaveFriendsResult() {
+        session = null
+        online = false
+        // The draft showed how hard the host's bots play; the menu goes back to the player's own choice.
+        selectedDifficulty = profile.lastDifficulty
+        friends.backToLobby()
     }
 
     /** Advances the match to the display's frame time. The battle screen calls this once per frame. */
@@ -269,7 +391,22 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val eng = engine ?: return
         val dt = if (lastFrameNanos == 0L) 0f else ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0f, 0.1f)
         lastFrameNanos = frameNanos
-        if (paused || eng.outcome != MatchOutcome.ONGOING) return
+        if (eng.outcome != MatchOutcome.ONGOING) return
+
+        // With friends the match cannot stop for one phone: the session keeps it in step with the others.
+        val match = session
+        if (match != null) {
+            match.advance(dt)
+            playCues(eng)
+            if (match.notice != sessionNotice) {
+                sessionNotice = match.notice
+                match.notice?.let { notice = Notice(it, nextNoticeId++) }
+            }
+            recordIfOver(eng)
+            frame++
+            return
+        }
+        if (paused) return
 
         accumulator += dt * (if (fastForward) 2f else 1f)
         var steps = 0
@@ -284,22 +421,29 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
         playCues(eng)
         rivalChatter(eng)
+        recordIfOver(eng)
+        frame++
+    }
+
+    /** Once, when the match has a result: into the stats, and on with the cup if this was a cup match. */
+    private fun recordIfOver(eng: GameEngine) {
         if (eng.outcome != MatchOutcome.ONGOING && !resultRecorded) {
             resultRecorded = true
-            val mine = eng.playerField
+            val mine = myField(eng)
+            val outcome = outcomeOf(eng)
             // A cup match moves the bracket on. A draw decides nothing: the round is played again.
             var cupEntered = false
             var cupWon = false
             val cup = profile.cup
-            if (matchMode == GameMode.CUP && cup != null && !cup.isOver && eng.outcome != MatchOutcome.DRAW) {
+            if (!online && matchMode == GameMode.CUP && cup != null && !cup.isOver && outcome != MatchOutcome.DRAW) {
                 cupEntered = cup.round == 0
-                val next = cup.afterPlayerMatch(eng.outcome == MatchOutcome.PLAYER_WIN, Random.Default)
+                val next = cup.afterPlayerMatch(outcome == MatchOutcome.PLAYER_WIN, Random.Default)
                 profile.saveCup(next)
                 cupWon = next.playerWon
             }
             profile.record(
                 MatchRecord(
-                    outcome = eng.outcome,
+                    outcome = outcome,
                     difficulty = selectedDifficulty,
                     towerIds = pickedTroops.map { it.id },
                     seconds = (eng.elapsedMs / 1000f).toInt(),
@@ -312,12 +456,12 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                     rivalId = rival.id,
                     teamMatch = matchMode == GameMode.TEAM,
                     cupEntered = cupEntered,
-                    cupWon = cupWon
+                    cupWon = cupWon,
+                    friendMatch = online
                 )
             )
             ghost = null
         }
-        frame++
     }
 
     /**
@@ -350,10 +494,14 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun playCues(eng: GameEngine) {
+        val mine = myField(eng)
+        val lane = eng.laneOf(mine)
         for (event in eng.cues) {
-            if (event.cue == SoundCue.WARNING && event.field === eng.playerField) rivalPushed = true
+            // What happens on the player's lane is theirs to hear; what a seat does (build, sell, send), only their own.
+            val own = event.field == null || event.field === mine || event.field === lane
+            if (event.cue == SoundCue.WARNING && own) rivalPushed = true
             when {
-                event.field == null || event.field === eng.playerField -> sound.play(event.cue)
+                own -> sound.play(event.cue)
                 // From the opponent's lane the player only needs to hear their own sends landing.
                 event.cue == SoundCue.POP || event.cue == SoundCue.POP_BIG || event.cue == SoundCue.BOOM ->
                     sound.play(event.cue, 0.3f)
@@ -377,7 +525,8 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleFastForward() {
-        fastForward = !fastForward
+        // A match with friends runs at one speed on every phone.
+        if (!online) fastForward = !fastForward
     }
 
     /**
@@ -389,6 +538,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         if (matchMode == GameMode.CUP && cup != null && !cup.isOver && matchRunning() && !resultRecorded) {
             resultRecorded = true
             profile.saveCup(cup.afterPlayerMatch(won = false, Random.Default))
+        }
+        // Walking out on friends leaves their game altogether; a bot takes this seat on their phones.
+        if (online) {
+            friends.close()
+            session = null
+            online = false
+            selectedDifficulty = profile.lastDifficulty
         }
         aiSeats = emptyList()
         paused = false
@@ -504,7 +660,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun armTroop(type: TroopType) {
         val eng = engine ?: return
         // An armed tower can always be put down again, even after the gold for it is gone.
-        if (armedTroop != type && eng.playerField.gold < type.cost) {
+        if (armedTroop != type && myField(eng).gold < type.cost) {
             deny("Not enough gold for ${type.name}")
             return
         }
@@ -522,7 +678,17 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val troop = armedTroop
         if (troop == null || !canAct()) return
         val (cx, cy) = eng.clampToLane(x, y)
-        ghost = Ghost(troop, cx, cy, eng.checkPlacement(eng.playerField, troop, cx, cy))
+        ghost = Ghost(troop, cx, cy, eng.checkPlacement(myField(eng), troop, cx, cy))
+    }
+
+    /**
+     * Does [command] for the player's seat: at once against the AI alone, through the session with
+     * friends, where it happens a moment later on every phone. Either way the engine has the last
+     * word on whether it is allowed.
+     */
+    private fun act(command: Command) {
+        val match = session
+        if (match != null) match.issue(command) else engine?.apply(command)
     }
 
     fun onLaneRelease(x: Float, y: Float) {
@@ -530,13 +696,17 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         ghost = null
         if (!canAct()) return
         val troop = armedTroop
+        val mine = myField(eng)
         if (troop == null) {
-            val nearest = eng.playerField.towers.minByOrNull { dist(it.x, it.y, x, y) }
+            val nearest = mine.towers.minByOrNull { dist(it.x, it.y, x, y) }
             selectedTowerId = nearest?.takeIf { dist(it.x, it.y, x, y) <= TOWER_TAP_RADIUS }?.instanceId
             return
         }
-        when (eng.placeTower(eng.playerField, troop, x, y)) {
-            PlaceResult.OK -> armedTroop = null
+        when (eng.checkPlacement(mine, troop, x, y)) {
+            PlaceResult.OK -> {
+                act(Command.Place(localSeat, troop.id, x, y))
+                armedTroop = null
+            }
             PlaceResult.NOT_ENOUGH_GOLD -> deny("Not enough gold for ${troop.name}")
             PlaceResult.TOO_CLOSE -> deny("Too close to another tower")
             PlaceResult.ON_PATH -> deny("Can't build on the track")
@@ -552,21 +722,31 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val eng = engine ?: return
         val id = selectedTowerId ?: return
         if (!canAct()) return
-        if (!eng.upgradeTower(eng.playerField, id)) playUi(SoundCue.DENIED)
+        val mine = myField(eng)
+        val tower = mine.towers.find { it.instanceId == id }
+        val tier = tower?.nextUpgrade
+        if (tower == null || tier == null || tower.owner !== mine || mine.gold < tier.cost) {
+            playUi(SoundCue.DENIED)
+        } else {
+            act(Command.Upgrade(localSeat, id))
+        }
     }
 
     fun sellSelectedTower() {
-        val eng = engine ?: return
         val id = selectedTowerId ?: return
         if (!canAct()) return
-        eng.sellTower(eng.playerField, id)
+        act(Command.Sell(localSeat, id))
         selectedTowerId = null
     }
 
     fun cycleSelectedTargeting() {
         val eng = engine ?: return
         val id = selectedTowerId ?: return
-        if (eng.cycleTargeting(eng.playerField, id)) playUi(SoundCue.CLICK)
+        val mine = myField(eng)
+        val tower = mine.towers.find { it.instanceId == id } ?: return
+        if (tower.owner !== mine || !eng.usesTargeting(tower.type)) return
+        act(Command.Retarget(localSeat, id))
+        playUi(SoundCue.CLICK)
     }
 
     fun deselect() {
@@ -579,10 +759,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun sendUnit(type: EnemySendType) {
         val eng = engine ?: return
         if (!canAct()) return
-        when (eng.sendEnemy(eng.playerField, eng.aiField, type)) {
+        when (eng.checkSend(myField(eng), type)) {
+            SendResult.OK -> act(Command.Send(localSeat, type.id))
             SendResult.LOCKED -> deny("${type.name} unlocks in round ${eng.unlockRoundOf(type)}")
             SendResult.NOT_ENOUGH_GOLD -> deny("Not enough gold for ${type.name}")
-            SendResult.OK, SendResult.COOLING_DOWN, SendResult.MATCH_OVER -> Unit
+            SendResult.COOLING_DOWN, SendResult.MATCH_OVER -> Unit
         }
     }
 
@@ -602,6 +783,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        friends.close()
         sound.release()
         super.onCleared()
     }

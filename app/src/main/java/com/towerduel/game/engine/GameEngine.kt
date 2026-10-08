@@ -11,12 +11,8 @@ import com.towerduel.game.data.TargetPriority
 import com.towerduel.game.data.TroopType
 import com.towerduel.game.data.Wave
 import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.pow
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
 
@@ -240,6 +236,84 @@ class GameEngine(
     /** The gold [field]'s whole team holds: its own purse and, in a 2 v 2, its partner's. */
     fun teamGold(field: Battlefield): Float = field.gold + (field.partner?.gold ?: 0f)
 
+    // -------------------------------------------------------------------
+    // Seats by number, commands, and what two phones compare
+    // -------------------------------------------------------------------
+
+    /** The seat with that number, or null if this match has none: 0 and 1 defend the first lane, 2 and 3 the second. */
+    fun seat(index: Int): Battlefield? = when (index) {
+        0 -> playerField
+        1 -> allyField
+        2 -> aiField
+        3 -> aiAllyField
+        else -> null
+    }
+
+    fun seatIndex(field: Battlefield): Int = when {
+        field === playerField -> 0
+        field === allyField -> 1
+        field === aiField -> 2
+        else -> 3
+    }
+
+    /** The seat [field]'s sends walk towards: the first seat of the other lane. */
+    fun foeOf(field: Battlefield): Battlefield = if (field.lane === playerField.lane) aiField else playerField
+
+    /** The first seat of [field]'s own lane: the one a lane is drawn and ticked through. */
+    fun laneOf(field: Battlefield): Battlefield = if (field.lane === playerField.lane) playerField else aiField
+
+    /** [outcome] as [field] sees it: PLAYER_WIN if its lane is the one left standing. */
+    fun outcomeFor(field: Battlefield): MatchOutcome = when (outcome) {
+        MatchOutcome.PLAYER_WIN -> if (field.lane === playerField.lane) MatchOutcome.PLAYER_WIN else MatchOutcome.AI_WIN
+        MatchOutcome.AI_WIN -> if (field.lane === playerField.lane) MatchOutcome.AI_WIN else MatchOutcome.PLAYER_WIN
+        else -> outcome
+    }
+
+    /**
+     * Carries out [command] for its seat. Whatever the seat may not do right now (too little gold,
+     * a spot that is taken, somebody else's tower) is quietly not done, exactly as for a local tap,
+     * so a command from another phone needs no checking beyond this.
+     */
+    fun apply(command: Command) {
+        val field = seat(command.seat) ?: return
+        when (command) {
+            is Command.Place -> {
+                val type = field.draftedTroops.firstOrNull { it.id == command.towerId } ?: return
+                placeTower(field, type, command.x, command.y)
+            }
+            is Command.Upgrade -> upgradeTower(field, command.instanceId)
+            is Command.Sell -> sellTower(field, command.instanceId)
+            is Command.Retarget -> cycleTargeting(field, command.instanceId)
+            is Command.Send -> {
+                val unit = roster.firstOrNull { it.id == command.unitId } ?: return
+                sendEnemy(field, foeOf(field), unit)
+            }
+            is Command.HandOver -> Unit // whoever runs the match gives the seat a bot
+        }
+    }
+
+    /**
+     * A fingerprint of everything that matters in the match right now. Two phones that have run
+     * the same commands must get the same number; if they ever do not, they are no longer playing
+     * the same match.
+     */
+    fun checksum(): Int {
+        var h = round * 31 + elapsedMs.toRawBits()
+        for (seat in seats) {
+            h = h * 31 + seat.gold.toRawBits()
+            h = h * 31 + seat.ecoIncome.toRawBits()
+        }
+        for (seat in lanes) {
+            h = h * 31 + seat.lives
+            h = h * 31 + seat.towers.size
+            for (t in seat.towers) h = (h * 31 + t.level) * 31 + t.kills
+            h = h * 31 + seat.incomingEnemies.size
+            for (e in seat.incomingEnemies) h = (h * 31 + e.hp.toRawBits()) * 31 + e.dist.toRawBits()
+            h = h * 31 + seat.projectiles.size
+        }
+        return h
+    }
+
     /** Income a send of [type] adds under this match's rules. */
     fun sendIncome(type: EnemySendType): Float = type.incomeBonus * modifier.sendIncomeMultiplier
 
@@ -356,11 +430,18 @@ class GameEngine(
     private fun ownTower(field: Battlefield, instanceId: Long): TowerInstance? =
         field.towers.find { it.instanceId == instanceId && it.owner === field }
 
-    fun sendEnemy(source: Battlefield, target: Battlefield, type: EnemySendType): SendResult {
+    /** What [source] sending [type] would do right now, without doing it. */
+    fun checkSend(source: Battlefield, type: EnemySendType): SendResult {
         if (outcome != MatchOutcome.ONGOING) return SendResult.MATCH_OVER
         if (!type.sendable || type !in roster || !isUnlocked(type)) return SendResult.LOCKED
         if (elapsedMs < (source.sendReadyAtMs[type.id] ?: 0f)) return SendResult.COOLING_DOWN
         if (source.gold < type.cost) return SendResult.NOT_ENOUGH_GOLD
+        return SendResult.OK
+    }
+
+    fun sendEnemy(source: Battlefield, target: Battlefield, type: EnemySendType): SendResult {
+        val result = checkSend(source, type)
+        if (result != SendResult.OK) return result
         source.gold -= type.cost
         source.ecoIncome += sendIncome(type) * (if (activeEvent() == MatchEventType.RECRUITING) RECRUITING_INCOME else 1f)
         source.sendReadyAtMs[type.id] = elapsedMs + sendCooldownMs(type)

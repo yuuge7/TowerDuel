@@ -1,5 +1,6 @@
 package com.towerduel.game.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,6 +48,7 @@ import com.towerduel.game.data.TroopType
 import com.towerduel.game.data.Rival
 import com.towerduel.game.engine.LanePath
 import com.towerduel.game.ui.Cup
+import com.towerduel.game.ui.FriendsPhase
 import com.towerduel.game.ui.GameViewModel
 import com.towerduel.game.ui.components.ChunkyTextButton
 import com.towerduel.game.ui.components.GameIcon
@@ -71,9 +73,11 @@ import com.towerduel.game.ui.theme.Sun
 import kotlin.math.roundToInt
 
 @Composable
-fun DraftScreen(viewModel: GameViewModel, onDeploy: () -> Unit) {
+fun DraftScreen(viewModel: GameViewModel, onDeploy: () -> Unit, onLeaveFriends: () -> Unit) {
     val picked = viewModel.pickedTroops
     val problem = viewModel.draftProblem
+    // Backing out of a draft with friends is leaving their game.
+    BackHandler(enabled = viewModel.online, onBack = onLeaveFriends)
 
     Column(
         modifier = Modifier
@@ -108,13 +112,20 @@ fun DraftScreen(viewModel: GameViewModel, onDeploy: () -> Unit) {
         }
 
         Spacer(Modifier.height(10.dp))
+        // With friends everybody drafts at once, and the match begins when the last one is ready.
+        val waiting = viewModel.online && viewModel.friends.phase == FriendsPhase.READY
         ChunkyTextButton(
-            text = problem?.uppercase() ?: "BATTLE!",
+            text = when {
+                waiting -> "WAITING FOR THE OTHERS"
+                problem != null -> problem.uppercase()
+                viewModel.online -> "READY!"
+                else -> "BATTLE!"
+            },
             onClick = onDeploy,
             modifier = Modifier.fillMaxWidth().height(62.dp),
             color = Leaf,
-            enabled = problem == null,
-            fontSize = if (problem == null) 26.sp else 15.sp
+            enabled = problem == null && !waiting,
+            fontSize = if (problem == null && !waiting) 26.sp else 15.sp
         )
     }
 }
@@ -133,15 +144,14 @@ private fun MatchCard(viewModel: GameViewModel) {
                 for (rule in viewModel.rules) InfoLine("RULE", rule.name, rule.description)
                 val second = viewModel.rival2
                 if (second == null) {
-                    InfoLine(
-                        "RIVAL", viewModel.rival.name,
-                        "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}. ${viewModel.aiPersonality.blurb}",
-                        AiColor
-                    )
+                    InfoLine("RIVAL", viewModel.rival.name, viewModel.describe(viewModel.rival), AiColor)
                 } else {
+                    val level = viewModel.selectedDifficulty.label
+                    val article = if (level.first().lowercaseChar() in "aeiou") "an" else "a"
+                    fun kind(who: Rival) = if (who.id.isEmpty()) "a friend" else "$article $level ${who.personality.label} bot"
                     InfoLine(
                         "RIVALS", "${viewModel.rival.name} & ${second.name}",
-                        "${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label} and ${second.personality.label}, two purses behind one lane.",
+                        "${kind(viewModel.rival).replaceFirstChar { it.uppercase() }} and ${kind(second)}: two purses behind one lane.",
                         AiColor
                     )
                 }
@@ -262,10 +272,15 @@ private fun AllyCard(ally: Rival, towers: List<TroopType>) {
                 Spacer(Modifier.width(6.dp))
                 Text(ally.name, color = PlayerColor, style = MaterialTheme.typography.titleMedium, fontSize = 15.sp, maxLines = 1)
                 Spacer(Modifier.width(6.dp))
-                Text(ally.personality.label, color = Lilac, style = MaterialTheme.typography.bodyMedium, fontSize = 12.sp, maxLines = 1)
+                Text(
+                    if (ally.id.isEmpty()) "A friend" else ally.personality.label,
+                    color = Lilac, style = MaterialTheme.typography.bodyMedium, fontSize = 12.sp, maxLines = 1
+                )
             }
             Text(
-                "Builds on your lane with its own gold, and brings:",
+                // A friend picks their own towers, at the same moment you pick yours.
+                if (towers.isEmpty()) "Builds on your lane with their own gold, and is picking their towers right now."
+                else "Builds on your lane with its own gold, and brings:",
                 color = Lilac, style = MaterialTheme.typography.bodyMedium, fontSize = 12.sp, lineHeight = 15.sp
             )
             Spacer(Modifier.height(4.dp))

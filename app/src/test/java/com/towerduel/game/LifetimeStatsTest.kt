@@ -110,4 +110,29 @@ class LifetimeStatsTest {
         assertEquals(1, stats.cupsWon)
         assertEquals(4, stats.wins)
     }
+
+    @Test
+    fun aMatchWithFriendsAddsToTheTotals_notToTheRecordAgainstTheAi() {
+        var stats = LifetimeStats()
+        stats += match(MatchOutcome.PLAYER_WIN)
+        val before = stats
+        stats += MatchRecord(MatchOutcome.PLAYER_WIN, Difficulty.HARD, listOf("sentry", "glue"), 300, 18, 400, 20, 5000, 9, 10, friendMatch = true)
+        stats += MatchRecord(MatchOutcome.AI_WIN, Difficulty.HARD, listOf("sentry"), 100, 6, 30, 5, 900, 3, 100, friendMatch = true)
+
+        assertEquals(2, stats.friendMatches)
+        assertEquals(1, stats.friendWins)
+        // The record, the streak and the per-difficulty table are as they were.
+        assertEquals(before.wins, stats.wins)
+        assertEquals(before.losses, stats.losses)
+        assertEquals(before.streak, stats.streak)
+        assertEquals(before.byDifficulty, stats.byDifficulty)
+        assertEquals(before.fastestWinSeconds, stats.fastestWinSeconds)
+        // What was done in them still counts.
+        assertEquals(before.pops + 430, stats.pops)
+        assertEquals(before.secondsPlayed + 400, stats.secondsPlayed)
+        assertEquals(18, stats.bestRound)
+        assertEquals(400, stats.mostPops)
+        assertEquals(3, stats.towerPicks["sentry"])
+        assertEquals(1, stats.towerPicks["glue"])
+    }
 }

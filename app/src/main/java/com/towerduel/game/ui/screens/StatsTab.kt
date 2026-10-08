@@ -94,7 +94,8 @@ fun StatsTab(viewModel: GameViewModel, onPlay: () -> Unit, modifier: Modifier = 
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         OutlinedText("YOUR STATS", fontSize = 32.sp, color = Sun, modifier = Modifier.padding(top = 12.dp))
-        if (stats.matches == 0) {
+        val played = stats.matches > 0 || stats.friendMatches > 0
+        if (!played) {
             NoMatchesYet(onPlay)
         } else {
             RecordPanel(stats)
@@ -105,7 +106,7 @@ fun StatsTab(viewModel: GameViewModel, onPlay: () -> Unit, modifier: Modifier = 
             RivalsPanel(stats)
         }
         // Always there, matches or not: a new phone with no matches is exactly where import is needed.
-        BackupPanel(viewModel, canExport = stats.matches > 0)
+        BackupPanel(viewModel, canExport = played)
         Spacer(Modifier.height(2.dp))
     }
 
@@ -342,6 +343,12 @@ private fun BestsPanel(stats: LifetimeStats) {
             StatTile("Cups won", "${stats.cupsWon}", Modifier.weight(1f))
             StatTile("Cups entered", "${stats.cupsEntered}", Modifier.weight(1f))
             StatTile("2 v 2 wins", compact(stats.teamWins.toLong()), Modifier.weight(1f))
+        }
+    }
+    Section("With friends") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatTile("Matches", compact(stats.friendMatches.toLong()), Modifier.weight(1f))
+            StatTile("Won", compact(stats.friendWins.toLong()), Modifier.weight(1f))
         }
     }
 }

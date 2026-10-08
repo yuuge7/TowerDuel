@@ -85,7 +85,9 @@ fun LaneView(
     modifier: Modifier = Modifier,
     selectedTowerId: Long? = null,
     ghost: Ghost? = null,
-    gestures: LaneGestures? = null
+    gestures: LaneGestures? = null,
+    /** The seat whose towers are plain; anybody else's on this lane carry a pennant. */
+    plainOwner: Battlefield = field
 ) {
     val typeface = rememberGameTypeface()
     val painter = remember(typeface) { LanePainter(typeface) }
@@ -129,7 +131,7 @@ fun LaneView(
             onDrawBehind {
                 observeFrame()
                 drawImage(terrain)
-                with(painter) { drawField(engine, field, team, u, selectedTowerId, ghost) }
+                with(painter) { drawField(engine, field, team, u, selectedTowerId, ghost, plainOwner) }
             }
         }
     )
@@ -150,7 +152,7 @@ class LanePainter(typeface: Typeface) {
 
     fun DrawScope.drawField(
         engine: GameEngine, field: Battlefield, team: Color, u: Float,
-        selectedTowerId: Long?, ghost: Ghost?
+        selectedTowerId: Long?, ghost: Ghost?, plainOwner: Battlefield = field
     ) {
         val now = engine.elapsedMs
         val path = engine.path
@@ -198,7 +200,7 @@ class LanePainter(typeface: Typeface) {
             drawTowerPips(t.level, t.x * u, t.y * u, u * towerPop(t, now))
             if (t.auraBonus > 0f) drawStar(Sun, (t.x + 2.4f) * u, (t.y - 2.4f) * u, 0.9f * u, OUTLINE * 0.6f * u)
             // In a 2 v 2 the second seat's towers carry a pennant, so it shows who built what.
-            if (t.owner != null && t.owner !== field) {
+            if (t.owner != null && t.owner !== plainOwner) {
                 val px = (t.x - 2.5f) * u
                 val py = (t.y - 2.1f) * u
                 drawLine(Ink, Offset(px, py + 1.3f * u), Offset(px, py - 1.2f * u), 0.4f * u, StrokeCap.Round)

@@ -67,15 +67,17 @@ fun ResultsScreen(
     onPlayAgain: () -> Unit,
     onMainMenu: () -> Unit
 ) {
-    val outcome = eng.outcome
+    val outcome = viewModel.outcomeOf(eng)
     val (headline, color) = when (outcome) {
         MatchOutcome.PLAYER_WIN -> "VICTORY!" to Sun
         MatchOutcome.AI_WIN -> "DEFEAT" to Tomato
         else -> "DRAW" to Cream
     }
-    val you = eng.playerField
-    val rival = eng.aiField
+    val you = viewModel.myField(eng)
+    val rival = viewModel.foeLane(eng)
     val record = viewModel.profile.stats
+    // As it was when the match ended: going back to the lobby ends the friends match while this screen is still fading out.
+    val online = remember { viewModel.online }
 
     BackHandler { onMainMenu() }
 
@@ -100,7 +102,8 @@ fun ResultsScreen(
                 color = Cream, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center
             )
             Text(
-                "Round ${eng.round} · ${formatDuration(eng.elapsedMs)} · ${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}",
+                if (opponent.id.isEmpty()) "Round ${eng.round} · ${formatDuration(eng.elapsedMs)} · with friends"
+                else "Round ${eng.round} · ${formatDuration(eng.elapsedMs)} · ${viewModel.selectedDifficulty.label} ${viewModel.aiPersonality.label}",
                 color = Lilac, style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center
             )
 
@@ -124,13 +127,14 @@ fun ResultsScreen(
             }
 
             Spacer(Modifier.height(12.dp))
-            val cup = viewModel.profile.cup.takeIf { viewModel.matchMode == GameMode.CUP }
+            val cup = viewModel.profile.cup.takeIf { viewModel.matchMode == GameMode.CUP && !online }
             Text(
                 when {
                     cup != null && cup.playerWon -> "The cup is yours!"
                     cup != null && cup.isOver -> "Out of the cup in the ${Cup.roundName(cup.knockedOutIn ?: 0).lowercase()}."
                     cup != null && outcome == MatchOutcome.DRAW -> "A draw settles nothing: the ${Cup.roundName(cup.round).lowercase()} is played again."
                     cup != null -> "Through to the ${Cup.roundName(cup.round).lowercase()}!"
+                    online -> "With friends: ${record.friendWins} won of ${record.friendMatches} played"
                     outcome == MatchOutcome.PLAYER_WIN && record.streak > 1 -> "${record.streak} wins in a row! Best streak: ${record.bestStreak}"
                     else -> "Record: ${record.wins} won, ${record.losses} lost"
                 },
@@ -139,9 +143,14 @@ fun ResultsScreen(
             )
 
             Spacer(Modifier.weight(1f))
+            val again = when {
+                online -> "BACK TO THE LOBBY"
+                viewModel.matchMode == GameMode.CUP -> "BACK TO THE CUP"
+                else -> "PLAY AGAIN"
+            }
             ChunkyTextButton(
-                if (viewModel.matchMode == GameMode.CUP) "BACK TO THE CUP" else "PLAY AGAIN", onPlayAgain,
-                Modifier.fillMaxWidth().height(68.dp), color = Leaf, fontSize = if (viewModel.matchMode == GameMode.CUP) 24.sp else 28.sp
+                again, onPlayAgain,
+                Modifier.fillMaxWidth().height(68.dp), color = Leaf, fontSize = if (again.length > 10) 23.sp else 28.sp
             )
             Spacer(Modifier.height(10.dp))
             ChunkyTextButton("MAIN MENU", onMainMenu, Modifier.fillMaxWidth().height(52.dp), color = PanelLight, fontSize = 18.sp)

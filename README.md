@@ -2,11 +2,13 @@
 
 [![Release](../../actions/workflows/release.yml/badge.svg)](../../actions/workflows/release.yml)
 
-A tower-defense duel for Android. You and an AI opponent each defend a lane
-with a drafted hand of towers, survive the same escalating waves, and send
-units down the other side's lane. Whoever runs out of lives first loses.
+A tower-defense duel for Android. You and an opponent, an AI or a friend on
+their own phone, each defend a lane with a drafted hand of towers, survive
+the same escalating waves, and send units down the other side's lane.
+Whoever runs out of lives first loses.
 
-Native Kotlin + Jetpack Compose. No game engine, no network access, no ads.
+Native Kotlin + Jetpack Compose. No game engine, no internet access, no
+servers, no accounts, no ads. Friends play phone to phone over Bluetooth.
 Every sprite is drawn in code and every sound is synthesized at startup. The
 only bundled assets are two open-licensed fonts.
 
@@ -17,6 +19,7 @@ only bundled assets are two open-licensed fonts.
 - [Features](#features)
 - [Install](#install)
 - [How a match plays](#how-a-match-plays)
+- [Playing with friends](#playing-with-friends)
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
 - [Extending the game](#extending-the-game)
@@ -33,6 +36,13 @@ only bundled assets are two open-licensed fonts.
   your own towers, against two rivals who share theirs. The **Cup** is a
   knockout of eight: three rounds, the final a step harder, and one loss
   puts you out.
+- **With friends, over Bluetooth.** Up to four phones in one match, with
+  no internet and no server: one hosts, the others join it. A 1 v 1, or a
+  2 v 2 with any mix of people and bots in the four seats: two friends
+  against two bots, a friend on each side with a bot beside them, three
+  friends with one bot filling the last seat, or four friends. If somebody
+  leaves or their phone drops out, a bot takes their seat and the match
+  goes on.
 - **Draft your defense.** Each match offers you 6 of the 38 towers and you
   keep 4. The AI drafts from its own offer, so neither side knows what the
   other holds until the towers go down.
@@ -107,8 +117,8 @@ only bundled assets are two open-licensed fonts.
   same engine you are about to.
 - **Matches of about 7 minutes.** 2 to 3 under Blitz, 10 under Marathon.
 - **A stats tab.** Win rate, record per difficulty, lifetime totals, personal
-  bests, cups won, 2 v 2 wins, your most picked towers and which rivals you
-  have beaten, all kept on the device.
+  bests, cups won, 2 v 2 wins, your record with friends, your most picked
+  towers and which rivals you have beaten, all kept on the device.
 - **Stats backup.** Export your stats to a file and import them again, for
   example on a new phone.
 
@@ -125,6 +135,10 @@ independently, so no two matches play the same way.
 
 Requires Android 8.0 (API 26) or newer. Every release is signed with the same
 key, so a newer APK installs over the old one and keeps it updated in place.
+
+The game asks for one permission, and only when you open **Friends**:
+Bluetooth ("Nearby devices" on Android 12 and newer). Playing against the AI
+needs none.
 
 ## How a match plays
 
@@ -168,6 +182,42 @@ Open the **Stats** tab on the main menu and scroll to **Backup**.
 
 The file is plain JSON. The game needs no storage permission for either
 direction: it only ever touches the one file you pick.
+
+## Playing with friends
+
+Everybody needs the same version of the game, Bluetooth switched on, and to
+be within Bluetooth range: the same room is fine.
+
+1. **Pair the phones once**, in Android's own Bluetooth settings. Every
+   guest pairs with the host's phone; the guests do not need to pair with
+   each other. The **Pair a phone** button on the Friends screen opens those
+   settings. The game only ever talks to phones you have paired yourself and
+   never scans for others.
+2. **One of you hosts.** Main menu, **Friends**, **Host a match**, then
+   **1 v 1** or **2 v 2**.
+3. **The others join.** Main menu, **Friends**, then the host's phone in the
+   list. Up to three can join one host.
+4. **The host seats everybody.** Each team has two seats. Tap an open seat
+   to give it to a bot, a bot to open the seat again, a friend to move them
+   to the next open seat. With three people that is, for example, two of
+   you against the third and a bot. The host also picks how hard the bots
+   play.
+5. **Start.** Everybody drafts at once, each from their own offer, and the
+   match begins when the last of you taps **Ready!**.
+
+The match itself plays like any other, with three differences. It cannot be
+paused or sped up: the pause button only asks whether you want to leave.
+What you do happens a fifth of a second after you touch the screen, the
+time the phones need to agree on it. And if a phone falls behind, the
+others wait for it, with a note on screen saying whom for; after ten
+seconds of silence a bot takes that seat.
+
+When a match ends everybody goes back to the lobby, and the host can start
+the next one. Matches with friends are counted on the Stats tab under their
+own heading and leave your record against the AI alone.
+
+If a friend is turned away for having a different version, one of you needs
+to update: every phone must run the same release.
 
 ## Building from source
 
@@ -239,23 +289,33 @@ app/src/main/java/com/towerduel/game/
 │   └── GameModels.kt        Data classes and enums for that content
 ├── engine/
 │   ├── GameEngine.kt        The simulation: rounds, events, income, targeting, projectiles, status effects, win condition
+│   ├── Commands.kt          Everything a player can do to a match, as values that can be sent to another phone
+│   ├── ExactMath.kt         Trigonometry that gives the same answer on every phone
 │   ├── AiController.kt      The opponent's decision making (and its draft)
 │   ├── WaveGenerator.kt     Builds each round's wave from the match's roster
 │   ├── MapGenerator.kt      Makes new tracks and checks them for fairness
 │   ├── PathMath.kt          The lane track: a smooth curve through a map's control points
 │   └── RuntimeModels.kt     Live match state (towers, units, projectiles, effects, battlefields)
+├── net/
+│   ├── Lobby.kt             The four seats of a friends match: who sits where, friend or bot
+│   ├── MatchSetup.kt        Everything a phone needs to build the same match as the others
+│   ├── Protocol.kt          The messages phones exchange, and their bytes
+│   ├── MatchSession.kt      Keeps the phones' matches in step, and hands a seat to a bot when a phone drops out
+│   ├── Link.kt              A connection to one other phone (and an in-memory one for the tests)
+│   └── BluetoothTransport.kt  Hosting and joining over classic Bluetooth
 └── ui/
     ├── GameViewModel.kt     Steps the engine once per display frame, exposes state to the UI
     ├── DemoMatch.kt         The AI-vs-AI match shown on the main menu
     ├── Stats.kt             Lifetime stats and how a finished match adds to them
     ├── StatsFile.kt         The export file: stats to JSON and back
     ├── Cup.kt               The cup's bracket: who meets whom, who goes through
+    ├── Friends.kt           A game with friends on this phone: lobby, shared draft, hand-over to the match
     ├── Profile.kt           Saves those stats and the settings (SharedPreferences)
     ├── Navigation.kt        Screen routing
     ├── audio/SoundFx.kt     Synthesizes every sound effect at startup
     ├── components/          Buttons, panels, outlined text and the icon set
     ├── render/              Everything drawn on a lane: terrain, sprites, effects
-    ├── screens/             MainMenu (Battle and Stats tabs) > Cup bracket > Draft > Battle > Results
+    ├── screens/             MainMenu (Battle and Stats tabs) > Cup bracket or Friends lobby > Draft > Battle > Results
     └── theme/               Colours, typography, Material theme
 ```
 
@@ -263,6 +323,15 @@ The `engine` package has no Android or Compose dependencies. The view model
 advances it in fixed 1/60 s steps, driven by the display's frame clock, and
 the UI draws whatever state it finds. Lanes are simulated in a fixed 100 x 62
 virtual coordinate space, so the game plays identically on every screen size.
+
+A match with friends is the same engine running on every phone at once
+(deterministic lockstep). The phones start from one seed and exchange only
+what the players do, a few bytes fifteen times a second; towers, units and
+bots are never sent, because every phone works them out to the same result.
+The host's phone is the hub the others connect to, but it has no more say
+over the match than any other. Nothing in `net/` except
+`BluetoothTransport.kt` touches Android, which is how the tests play whole
+friends matches without a phone.
 
 There are no image or audio files. Sprites are drawn from a handful of
 shapes in `ui/render/Sprites.kt`, the same code for the battlefield and for
@@ -332,6 +401,13 @@ health budget, and two rules rolled together never contradict each other.
 `CupTest` covers the cup's bracket: eight different entrants, three wins to
 take it, a loss that ends it with the rest played out, and a saved cup that
 reads back the same or is dropped if it makes no sense.
+
+`LockstepTest` plays whole friends matches between two, three and four
+simulated phones over links with delay and jitter, and fails if any two of
+them ever disagree about the match. It also covers the ways a phone can
+drop out: leaving, a dead link, going silent, and the host itself going
+away. `FriendsProtocolTest` covers the lobby's seating, the messages' round
+trip to bytes and back, and that bytes which are not a message are refused.
 
 `LifetimeStatsTest` covers how a finished match is added to the stats tab's
 numbers: streaks, the per-difficulty record, totals and bests.
@@ -464,7 +540,10 @@ app. The official one has to be uninstalled first.
 2. Follow [Building from source](#building-from-source) to get a debug build
    running.
 3. Keep simulation logic in `engine/` free of Android and Compose imports,
-   and keep content and balance numbers in `GameData.kt`.
+   and keep content and balance numbers in `GameData.kt`. The engine must
+   give the same result on every phone: no wall clock, no unseeded
+   randomness, and `sin`, `cos`, `atan2` and `pow` only from
+   `engine/ExactMath.kt`.
 4. Run `./gradlew :app:testDebugUnitTest`. For balance changes, include the
    simulation table before and after.
 5. Run the game on a device or emulator and play at least one full match

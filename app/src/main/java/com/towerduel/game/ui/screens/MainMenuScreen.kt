@@ -79,7 +79,7 @@ import kotlinx.coroutines.withContext
 private enum class MenuTab(val label: String) { BATTLE("BATTLE"), STATS("STATS") }
 
 @Composable
-fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
+fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit, onFriends: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(MenuTab.BATTLE) }
     // A first-time player gets the rules before anything else.
     var showHelp by rememberSaveable { mutableStateOf(viewModel.profile.isNewPlayer) }
@@ -89,7 +89,7 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(ScreenBackground)) {
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 16.dp)) {
             when (tab) {
-                MenuTab.BATTLE -> BattleTab(viewModel, onStart, onHelp = { showHelp = true }, Modifier.weight(1f))
+                MenuTab.BATTLE -> BattleTab(viewModel, onStart, onFriends, onHelp = { showHelp = true }, Modifier.weight(1f))
                 MenuTab.STATS -> StatsTab(viewModel, onPlay = { tab = MenuTab.BATTLE }, Modifier.weight(1f))
             }
 
@@ -119,7 +119,9 @@ fun MainMenuScreen(viewModel: GameViewModel, onStart: (Difficulty) -> Unit) {
 }
 
 @Composable
-private fun BattleTab(viewModel: GameViewModel, onStart: (Difficulty) -> Unit, onHelp: () -> Unit, modifier: Modifier) {
+private fun BattleTab(
+    viewModel: GameViewModel, onStart: (Difficulty) -> Unit, onFriends: () -> Unit, onHelp: () -> Unit, modifier: Modifier
+) {
     var selected by rememberSaveable { mutableStateOf(viewModel.selectedDifficulty) }
 
     // Runs the menu's demo match, and prepares the next one in the background before the
@@ -208,9 +210,14 @@ private fun BattleTab(viewModel: GameViewModel, onStart: (Difficulty) -> Unit, o
             )
             Spacer(Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Real people, over Bluetooth: its own lobby, not a mode of the match against the AI.
+                ChunkyTextButton(
+                    "FRIENDS", onClick = onFriends,
+                    modifier = Modifier.weight(1f).height(50.dp), color = Sky, fontSize = 16.sp
+                )
                 ChunkyTextButton(
                     "HOW TO PLAY", onClick = onHelp,
-                    modifier = Modifier.weight(1f).height(50.dp), color = PanelLight, fontSize = 16.sp
+                    modifier = Modifier.weight(1.3f).height(50.dp), color = PanelLight, fontSize = 15.sp
                 )
                 ChunkyButton(
                     viewModel::toggleSound, Modifier.size(width = 62.dp, height = 50.dp),

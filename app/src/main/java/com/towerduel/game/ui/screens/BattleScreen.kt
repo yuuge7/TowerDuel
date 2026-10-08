@@ -151,22 +151,31 @@ fun BattleScreen(
         Column(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 8.dp)) {
             TopHud(viewModel, eng)
 
+            // The player's own lane is always the lower one, whichever of the match's two lanes that is:
+            // a friend who joined sits on the far side of the host's table and still looks at it from their own.
+            val mine = viewModel.myField(eng)
+            val theirs = viewModel.foeLane(eng)
             LaneSlot(Modifier.weight(1f)) {
-                LaneView(eng, eng.aiField, AiColor, viewModel::observeFrame)
+                LaneView(eng, theirs, AiColor, viewModel::observeFrame)
                 LaneOverlay(
-                    viewModel, eng, eng.aiField,
-                    if (eng.isTeamMatch) "RIVALS" else viewModel.rival.name.uppercase(), AiColor, isPlayer = false
+                    viewModel, eng, theirs,
+                    if (eng.isTeamMatch) "RIVALS" else viewModel.rival.name.uppercase().take(16), AiColor, isPlayer = false,
+                    purses = listOfNotNull(theirs, theirs.partner)
                 )
             }
             Spacer(Modifier.height(6.dp))
             LaneSlot(Modifier.weight(1f)) {
                 LaneView(
-                    eng, eng.playerField, PlayerColor, viewModel::observeFrame,
+                    eng, eng.laneOf(mine), PlayerColor, viewModel::observeFrame,
                     selectedTowerId = viewModel.selectedTowerId,
                     ghost = viewModel.ghost,
-                    gestures = gestures
+                    gestures = gestures,
+                    plainOwner = mine
                 )
-                LaneOverlay(viewModel, eng, eng.playerField, if (eng.isTeamMatch) "YOUR TEAM" else "YOU", PlayerColor, isPlayer = true)
+                LaneOverlay(
+                    viewModel, eng, mine, if (eng.isTeamMatch) "YOUR TEAM" else "YOU", PlayerColor, isPlayer = true,
+                    purses = listOfNotNull(mine.partner)
+                )
             }
             Spacer(Modifier.height(6.dp))
 
@@ -208,12 +217,15 @@ private fun TopHud(viewModel: GameViewModel, eng: GameEngine) {
             modifier = Modifier.weight(1f)
         )
         if (!eng.suddenDeath) HudPill(GameIconKind.CLOCK, formatClock(eng.timeRemainingSec()))
-        SquareButton(
-            GameIconKind.FAST,
-            if (viewModel.fastForward) "Normal speed" else "Double speed",
-            onClick = viewModel::toggleFastForward,
-            color = if (viewModel.fastForward) Sun else PanelLight
-        )
+        // A match with friends runs at one speed on every phone.
+        if (!viewModel.online) {
+            SquareButton(
+                GameIconKind.FAST,
+                if (viewModel.fastForward) "Normal speed" else "Double speed",
+                onClick = viewModel::toggleFastForward,
+                color = if (viewModel.fastForward) Sun else PanelLight
+            )
+        }
     }
 }
 
@@ -279,7 +291,9 @@ private fun formatClock(seconds: Int): String = "${seconds / 60}:${(seconds % 60
 @Composable
 private fun BoxScope.LaneOverlay(
     viewModel: GameViewModel, eng: GameEngine, field: Battlefield,
-    label: String, team: Color, isPlayer: Boolean
+    label: String, team: Color, isPlayer: Boolean,
+    /** The purses shown beside the lives: the rivals' (a fat one means a push is coming), and an ally's in green. */
+    purses: List<Battlefield>
 ) {
     viewModel.observeFrame()
     // Units walk in from the left edge; the tag takes whichever left corner they do not use.
@@ -292,12 +306,8 @@ private fun BoxScope.LaneOverlay(
         ) {
             TeamTag(label, team)
             HudPill(GameIconKind.HEART, "${field.lives}", fontSize = 15.sp, textColor = if (field.lives <= eng.startingLives / 4) Tomato else Cream)
-            // The rival's purse is public: a fat one means a push is coming.
-            if (!isPlayer) HudPill(GameIconKind.COIN, "${field.gold.toInt()}", fontSize = 15.sp)
-            // In a 2 v 2 so is the other seat's on each lane: the second rival's, and your ally's (in green).
-            val partner = field.partner
-            if (partner != null) {
-                HudPill(GameIconKind.COIN, "${partner.gold.toInt()}", fontSize = 15.sp, textColor = if (isPlayer) Leaf else Cream)
+            for (purse in purses) {
+                HudPill(GameIconKind.COIN, "${purse.gold.toInt()}", fontSize = 15.sp, textColor = if (isPlayer) Leaf else Cream)
             }
         }
 
@@ -425,7 +435,7 @@ private fun WarningBanner(unit: EnemySendType, alpha: Float, modifier: Modifier)
 @Composable
 private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
     viewModel.observeFrame()
-    val field = eng.playerField
+    val field = viewModel.myField(eng)
     val gold = field.gold
     val selected = viewModel.selectedTowerId?.let { id -> field.towers.find { it.instanceId == id } }
     // The match's roster, four to a row, and what each send adds to income under this match's rules.
@@ -483,7 +493,7 @@ private fun BottomPanel(viewModel: GameViewModel, eng: GameEngine) {
 
 @Composable
 private fun StatusRow(viewModel: GameViewModel, eng: GameEngine, selected: TowerInstance?) {
-    val field = eng.playerField
+    val field = viewModel.myField(eng)
     val notice = viewModel.notice
     val armed = viewModel.armedTroop
     Row(modifier = Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -709,7 +719,7 @@ private fun SendChip(
 @Composable
 private fun MatchOverlays(viewModel: GameViewModel, eng: GameEngine, onQuit: () -> Unit, onMatchEnd: () -> Unit) {
     viewModel.observeFrame()
-    val outcome = eng.outcome
+    val outcome = viewModel.outcomeOf(eng)
     val paused = viewModel.paused
 
     val currentOnMatchEnd by rememberUpdatedState(onMatchEnd)
@@ -728,6 +738,20 @@ private fun MatchOverlays(viewModel: GameViewModel, eng: GameEngine, onQuit: () 
         OutcomeBanner(outcome)
     } else if (paused) {
         PauseOverlay(viewModel, eng, onQuit)
+    } else {
+        // With friends the match stops only when a phone has fallen behind: say whose it is waiting for.
+        val waitingFor = viewModel.waitingFor
+        if (waitingFor != null) WaitingBanner(waitingFor)
+    }
+}
+
+@Composable
+private fun WaitingBanner(name: String) {
+    Box(modifier = Modifier.fillMaxSize().systemBarsPadding().padding(top = 64.dp), contentAlignment = Alignment.TopCenter) {
+        val shape = RoundedCornerShape(16.dp)
+        Box(modifier = Modifier.clip(shape).background(NightDeep.copy(alpha = 0.9f)).border(2.5.dp, Ink, shape).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            OutlinedText("WAITING FOR ${name.uppercase().take(18)}", fontSize = 18.sp, color = Sun)
+        }
     }
 }
 
@@ -743,18 +767,20 @@ private fun PauseOverlay(viewModel: GameViewModel, eng: GameEngine, onQuit: () -
     ) {
         GamePanel(modifier = Modifier.fillMaxWidth(0.82f), corner = 24.dp) {
             Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                OutlinedText("PAUSED", fontSize = 34.sp, color = Sun)
+                OutlinedText(if (viewModel.online) "LEAVE?" else "PAUSED", fontSize = 34.sp, color = Sun)
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "${eng.modifier.name}: ${eng.modifier.description}",
                     color = Lilac, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center
                 )
-                if (viewModel.matchMode == GameMode.CUP) {
+                val warning = when {
+                    viewModel.online -> "The match goes on while this is open. If you quit, a bot takes your seat and your friends play on."
+                    viewModel.matchMode == GameMode.CUP -> "Quitting forfeits this cup match."
+                    else -> null
+                }
+                if (warning != null) {
                     Spacer(Modifier.height(6.dp))
-                    Text(
-                        "Quitting forfeits this cup match.",
-                        color = Tomato, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center
-                    )
+                    Text(warning, color = Tomato, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
                 }
                 Spacer(Modifier.height(18.dp))
                 ChunkyTextButton("RESUME", viewModel::resume, Modifier.fillMaxWidth().height(58.dp), color = Leaf)

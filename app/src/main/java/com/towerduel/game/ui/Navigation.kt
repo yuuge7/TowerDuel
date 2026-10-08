@@ -11,6 +11,7 @@ import com.towerduel.game.data.GameMode
 import com.towerduel.game.ui.screens.BattleScreen
 import com.towerduel.game.ui.screens.CupScreen
 import com.towerduel.game.ui.screens.DraftScreen
+import com.towerduel.game.ui.screens.FriendsScreen
 import com.towerduel.game.ui.screens.MainMenuScreen
 import com.towerduel.game.ui.screens.ResultsScreen
 
@@ -29,6 +30,47 @@ fun AppNavHost(viewModel: GameViewModel) {
         }
     }
 
+    // Back to the friends screen from wherever a game with friends has taken this phone.
+    val toFriends: () -> Unit = {
+        if (!navController.popBackStack("friends", inclusive = false)) {
+            navController.navigate("friends") {
+                popUpTo("menu")
+                launchSingleTop = true
+            }
+        }
+    }
+
+    // A game with friends moves every phone from screen to screen together: the host starts the
+    // draft, the last pick starts the match, and a lobby that reopens calls everybody back to it.
+    val friendsPhase = viewModel.friends.phase
+    LaunchedEffect(friendsPhase) {
+        val at = navController.currentDestination?.route
+        when (friendsPhase) {
+            FriendsPhase.DRAFT -> if (at != "draft") navController.navigate("draft") {
+                popUpTo("friends")
+                launchSingleTop = true
+            }
+            // Still PLAYING while the result is looked at: only a draft leads into a battle.
+            FriendsPhase.PLAYING -> if (at != "battle" && at != "results") navController.navigate("battle") {
+                popUpTo("friends")
+                launchSingleTop = true
+            }
+            FriendsPhase.HOSTING, FriendsPhase.JOINED, FriendsPhase.JOINING ->
+                if (at == "draft" || at == "battle" || at == "results") {
+                    // Back in the lobby from a draft: it was called off (somebody left), and nothing of it is left.
+                    if (at == "draft") viewModel.friendsGone()
+                    toFriends()
+                }
+            FriendsPhase.IDLE ->
+                // The game with friends is gone (the host closed it, the link went) before a match began.
+                if (viewModel.online && at == "draft") {
+                    viewModel.friendsGone()
+                    toFriends()
+                }
+            FriendsPhase.READY -> Unit
+        }
+    }
+
     NavHost(navController = navController, startDestination = "menu") {
         composable("menu") { entry ->
             MainMenuScreen(
@@ -43,8 +85,12 @@ fun AppNavHost(viewModel: GameViewModel) {
                             navController.navigate("draft") { launchSingleTop = true }
                         }
                     }
-                }
+                },
+                onFriends = { if (entry.isResumed()) navController.navigate("friends") { launchSingleTop = true } }
             )
+        }
+        composable("friends") { entry ->
+            FriendsScreen(viewModel = viewModel, onMenu = { if (entry.isResumed()) backToMenu() })
         }
         composable("cup") { entry ->
             if (viewModel.profile.cup == null) {
@@ -69,8 +115,17 @@ fun AppNavHost(viewModel: GameViewModel) {
             }
             DraftScreen(
                 viewModel = viewModel,
+                onLeaveFriends = {
+                    if (entry.isResumed()) {
+                        viewModel.quitMatch()
+                        toFriends()
+                    }
+                },
                 onDeploy = {
-                    if (entry.isResumed() && viewModel.draftProblem == null) {
+                    if (viewModel.online) {
+                        // With friends the match begins when everybody has picked, not when this phone has.
+                        if (entry.isResumed()) viewModel.readyUp()
+                    } else if (entry.isResumed() && viewModel.draftProblem == null) {
                         viewModel.startMatch()
                         navController.navigate("battle") {
                             popUpTo("menu")
@@ -91,14 +146,16 @@ fun AppNavHost(viewModel: GameViewModel) {
                 eng = eng,
                 onMatchEnd = {
                     navController.navigate("results") {
-                        popUpTo("menu")
+                        // With friends the lobby stays underneath: that is where the result leads back to.
+                        popUpTo(if (viewModel.online) "friends" else "menu")
                         launchSingleTop = true
                     }
                 },
                 onQuit = {
                     if (entry.isResumed()) {
+                        val cup = viewModel.matchMode == GameMode.CUP && !viewModel.online
                         viewModel.quitMatch()
-                        if (viewModel.matchMode == GameMode.CUP) toCup() else backToMenu()
+                        if (cup) toCup() else backToMenu()
                     }
                 }
             )
@@ -114,7 +171,11 @@ fun AppNavHost(viewModel: GameViewModel) {
                 eng = eng,
                 onPlayAgain = {
                     if (entry.isResumed()) {
-                        if (viewModel.matchMode == GameMode.CUP) {
+                        if (viewModel.online) {
+                            // Back to the lobby, if it is still there; the phase change does the navigating.
+                            viewModel.leaveFriendsResult()
+                            if (viewModel.friends.phase == FriendsPhase.IDLE) toFriends()
+                        } else if (viewModel.matchMode == GameMode.CUP) {
                             toCup()
                         } else {
                             viewModel.rollNewMatchSetup(viewModel.selectedDifficulty, viewModel.matchMode)
@@ -125,7 +186,12 @@ fun AppNavHost(viewModel: GameViewModel) {
                         }
                     }
                 },
-                onMainMenu = { if (entry.isResumed()) backToMenu() }
+                onMainMenu = {
+                    if (entry.isResumed()) {
+                        if (viewModel.online) viewModel.quitMatch()
+                        backToMenu()
+                    }
+                }
             )
         }
     }
